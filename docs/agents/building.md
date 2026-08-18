@@ -79,12 +79,12 @@ codex-container bash            # run an arbitrary command instead of the CLI
 claude-container --container-help
 ```
 
-Unlike `docker compose run`, this launcher mounts the current directory, `~/.gitconfig`, and
-per-tool config directories (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/gcloud`,
-`~/.config/gh`, `~/.aws`) read-write where noted, on top of the same 1Password SSH-agent
-forwarding `compose.yaml` uses. See
+Unlike `docker compose run`, this launcher mounts the current directory read-write, plus host
+credentials: `~/.gitconfig`, `~/.aws`, and `~/.config/gh` read-only, and the per-tool config
+directories (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/gcloud`) read-write, on top of the
+same 1Password SSH-agent forwarding `compose.yaml` uses. See
 [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md) for the full
-mount table and the reasoning behind the Docker-socket and credential-mount decisions.
+mount table and the reasoning behind the credential-mount decisions.
 
 ## Troubleshooting
 

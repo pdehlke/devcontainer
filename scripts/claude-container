@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-container — launch the devcontainer image from any repo, running Claude Code, Codex,
+# claude-container: launch the devcontainer image from any repo, running Claude Code, Codex,
 # or Gemini CLI depending on the name it's invoked as (see the `install` target in ../Makefile).
 # Adapted from https://github.com/nicwolff/claude-container; see
 # docs/superpowers/specs/2026-08-18-container-launcher-design.md for what changed and why.
@@ -31,7 +31,7 @@ Environment variables (passed through when set):
   CLAUDE_GITHUB_TOKEN       GitHub personal access token for gh CLI
   GOOGLE_CLOUD_PROJECT      Google Cloud project ID for Gemini CLI Vertex usage
   GOOGLE_CLOUD_LOCATION     Google Cloud region for Gemini CLI Vertex usage
-  OPENAI_API_KEY             OpenAI API key for Codex (falls back to macOS Keychain)
+  OPENAI_API_KEY            OpenAI API key for Codex (falls back to macOS Keychain)
 HELP
   exit 0
 fi
@@ -66,17 +66,20 @@ elif [[ "$SELF" == "gemini-container" ]]; then
   if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
     set -- gemini --yolo "$@"
   fi
+else
+  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+    set -- claude "$@"
+  fi
 fi
 
 # Get absolute path of current directory
 PWD_ABS="$(pwd)"
 
-# Build volume mounts; skip optional paths that don't exist on the host. The current directory,
-# the SSH agent proxy socket, and the Docker socket are not optional.
+# Build volume mounts; skip optional paths that don't exist on the host. The current directory
+# and the SSH agent proxy socket are not optional.
 VOLUMES=(
   -v "${PWD_ABS}:${PWD_ABS}"
   -v "/run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock"
-  -v "/var/run/docker.sock:/var/run/docker.sock"
 )
 if [ -f "${HOME}/.gitconfig" ]; then
   VOLUMES+=(-v "${HOME}/.gitconfig:/home/pde/.gitconfig:ro")
@@ -96,16 +99,39 @@ else
   [ -f "${HOME}/.claude.json" ] && VOLUMES+=(-v "${HOME}/.claude.json:/home/pde/.claude.json:rw")
 fi
 
+# Keep secrets off the docker run process argv, which stays visible via ps for the container's
+# entire lifetime (this script execs docker run, so it never exits until the container does).
+# Export the values instead and pass docker a bare -e VARNAME; docker reads the value from its
+# own process environment when no "=value" is given.
+#
+# Forwarding GITHUB_TOKEN is gated on CLAUDE_GITHUB_TOKEN specifically, not on GITHUB_TOKEN's own
+# ambient presence: GITHUB_TOKEN is a common env var name (gh itself, Terraform's GitHub
+# provider, GitHub Actions convention), and this script must not forward a value that happens to
+# already be set for some unrelated reason. CLAUDE_GITHUB_TOKEN is the only documented, explicit
+# opt-in for this.
+if [ -n "${CLAUDE_GITHUB_TOKEN:-}" ]; then
+  export GITHUB_TOKEN="${CLAUDE_GITHUB_TOKEN}"
+  FORWARD_GITHUB_TOKEN=1
+fi
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  export OPENAI_API_KEY
+fi
+
+# Only allocate a pty when one is actually available, so non-interactive invocations (piped or
+# redirected, e.g. `<any> gh pr list > out.txt`) work instead of failing or emitting pty CRLFs.
+TTY_FLAGS=(-i)
+[ -t 0 ] && [ -t 1 ] && TTY_FLAGS+=(-t)
+
 # Run the dev container. SSH_AUTH_SOCK points at the in-image symlink the Dockerfile creates
 # to /run/host-services/ssh-auth.sock, matching compose.yaml's forwarding setup.
-exec docker run --rm -it \
+exec docker run --rm "${TTY_FLAGS[@]}" \
   "${VOLUMES[@]}" -w "${PWD_ABS}" \
   -e "SSH_AUTH_SOCK=/home/pde/.1password/agent.sock" \
   ${AWS_PROFILE:+-e "AWS_PROFILE=${AWS_PROFILE}"} \
   ${AWS_REGION:+-e "AWS_REGION=${AWS_REGION}"} \
   ${CLAUDE_CODE_USE_BEDROCK:+-e "CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK}"} \
-  ${CLAUDE_GITHUB_TOKEN:+-e "GITHUB_TOKEN=${CLAUDE_GITHUB_TOKEN}"} \
+  ${FORWARD_GITHUB_TOKEN:+-e GITHUB_TOKEN} \
   ${GOOGLE_CLOUD_PROJECT:+-e "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"} \
   ${GOOGLE_CLOUD_LOCATION:+-e "GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}"} \
-  ${OPENAI_API_KEY:+-e "OPENAI_API_KEY=${OPENAI_API_KEY}"} \
+  ${OPENAI_API_KEY:+-e OPENAI_API_KEY} \
   "$IMAGE" "$@"

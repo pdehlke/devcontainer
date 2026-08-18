@@ -15,8 +15,8 @@
 - Container-side paths use `/home/pde`, never upstream's `/home/dev`.
 - Image stays `claude-code-dev:latest` (already matches `compose.yaml`).
 - SSH agent forwarding: mount `/run/host-services/ssh-auth.sock` to the same path, and set `SSH_AUTH_SOCK=/home/pde/.1password/agent.sock` (resolved by the in-image symlink the Dockerfile already creates), mirroring `compose.yaml`.
-- Docker socket: mount `/var/run/docker.sock` to the same path (straight, not upstream's proxied `docker-real.sock` remap).
-- `~/.claude` and `~/.claude.json` mount read-write, unconditionally when present (matches upstream, supersedes container-setup.md's more cautious credentials-only option for this launcher).
+- Docker socket mount: dropped after the final review found no consumer in this image (no docker CLI installed anywhere) — pure added blast radius for zero benefit. See the design spec's decision table for the full rationale. Don't re-add without a real use case.
+- `~/.claude` and `~/.claude.json` mount read-write when present, for the claude flavor (matches upstream, supersedes container-setup.md's more cautious credentials-only option for this launcher).
 - No `--dangerously-skip-permissions` auto-injection for the `claude` flavor (deferred; codex/gemini keep their existing `--yolo` auto-injection unchanged).
 - Drop `ALLOWED_MOUNT_BASE`/`ALLOWED_RW_BASE` and the separate `~/.claude-plugins` mount entirely — nothing in this repo consumes them.
 - Existing test convention (`tests/test-build`, `tests/test-compose`): zsh script, `PATH="${STUB_PATH}:${ORIGINAL_PATH}"` to substitute `tests/fixtures/bin/docker`, a `fail()` helper, `TRAPEXIT`/`TRAPZERR` cleanup of a `mktemp -d` scratch root, `test_*` functions driven by `main()`, `print -r -- "PASS: ..."` after each.

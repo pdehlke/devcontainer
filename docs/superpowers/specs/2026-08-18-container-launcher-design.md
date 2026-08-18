@@ -20,10 +20,14 @@ a Docker-socket proxy container that filters mount/capability requests via `ALLO
 / `ALLOWED_RW_BASE`, and a `make install` step for that whole stack. None of that travels:
 
 - This repo keeps its own Ubuntu 24.04, chezmoi-provisioned Dockerfile.
-- The Docker socket is mounted straight (`/var/run/docker.sock` to the same path), not through
-  upstream's proxy. `ALLOWED_MOUNT_BASE`/`ALLOWED_RW_BASE` are proxy-only inputs with nothing to
-  consume them here, so they're dropped. This means the container gets unrestricted host Docker
-  access — accepted deliberately, not a default worth revisiting silently later.
+- The Docker socket mount is dropped entirely, not carried over even in straight (unproxied)
+  form. The initial design mounted it straight through (`/var/run/docker.sock` to the same
+  path), accepting unrestricted host Docker access as a deliberate tradeoff since there's no
+  proxy sidecar here to remap to. The final whole-branch review found no consumer for it in this
+  image (no Docker CLI installed by the Dockerfile, no `devcontainer.json`/feature, no mise pin)
+  and removed it: no benefit, only added blast radius. Revisit if a real use case for a Docker
+  CLI inside the container shows up. `ALLOWED_MOUNT_BASE`/`ALLOWED_RW_BASE` are proxy-only inputs
+  with nothing to consume them here regardless, so they stay dropped.
 - The separate `~/.claude-plugins` → `/home/dev/user-plugins` mount is dropped as redundant: the
   full `~/.claude` mount (below) already carries plugins.
 
@@ -39,8 +43,8 @@ over, not just fixing paths.
 | Concern | Decision | Rationale |
 | --- | --- | --- |
 | Git/SSH auth | Forward `SSH_AUTH_SOCK` to the 1Password proxy socket, same as `compose.yaml`. Keep the `~/.gitconfig` mount (read-only) alongside it. | Agent forwarding supplies the key; `.gitconfig` supplies identity/signing prefs for whatever repo gets mounted. Neither alone is sufficient. |
-| Docker socket | Keep, mounted straight (`/var/run/docker.sock:/var/run/docker.sock`), not upstream's proxied remap. | Decided explicitly, accepting the broadened blast radius, since there's no proxy sidecar in this repo to remap to. |
-| Claude Code auth/settings | Mount the full `~/.claude` and `~/.claude.json`, read-write — matches upstream as-is. | Convenience wins here; settings/plugins/session history all carry over. Supersedes container-setup.md's more cautious "credentials-file-only, read-only" option for this launcher specifically. |
+| Docker socket | Dropped (was kept, mounted straight, in the initial design). | Originally decided to keep it, accepting the broadened blast radius, since there's no proxy sidecar in this repo to remap to. The final whole-branch review found no consumer for it in this image (no Docker CLI installed, no `devcontainer.json`/feature, no mise pin) and removed it as unnecessary blast radius; see "What's not being adopted" above. Revisit if a real use case for a Docker CLI inside the container shows up. |
+| Claude Code auth/settings | Mount the full `~/.claude` and `~/.claude.json`, read-write — matches upstream as-is. | Convenience wins here; settings/plugins/session history all carry over. Supersedes container-setup.md's more cautious "credentials-file-only, read-only" option for this launcher specifically. Known accepted consequence: container-setup.md separately warns that hooks (`Notification`, `PostToolUse`, `Stop`, `SessionStart`, `SessionEnd`) wired in a host `settings.json` assume a host terminal-multiplexer session and may fail or silently no-op inside this headless container. That's expected here, not something this launcher works around. |
 | Claude Code YOLO parity | **Deferred, not added.** codex/gemini keep their existing auto `--yolo` injection; `claude-container` launches plain `claude` (normal permission prompts). | Explicitly undecided — pde may switch this once there's real usage to judge by. Noted here so it isn't silently forgotten. |
 | `gh` config | Keep `~/.config/gh` mounted read-only, even though `container-setup.md` already documents that gh's host auth is keyring-backed and doesn't travel into a container. | Harmless if inert; `CLAUDE_GITHUB_TOKEN` → `GITHUB_TOKEN` passthrough (already in the script) is the real fallback path. |
 | AWS / GCP env passthrough | Carried over unchanged (`AWS_PROFILE`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `OPENAI_API_KEY` with macOS Keychain fallback). | No conflict with anything in this repo; inert if unset. |
@@ -57,18 +61,19 @@ repo's Dockerfile actually creates.
 | `~/.gitconfig` | `/home/pde/.gitconfig` | ro | |
 | `~/.aws` | `/home/pde/.aws` | ro | |
 | `~/.config/gh` | `/home/pde/.config/gh` | ro | Likely inert; kept per decision above. |
-| `~/.claude` | `/home/pde/.claude` | rw | |
-| `~/.claude.json` | `/home/pde/.claude.json` | rw | |
+| `~/.claude` | `/home/pde/.claude` | rw | claude flavor only |
+| `~/.claude.json` | `/home/pde/.claude.json` | rw | claude flavor only |
 | `~/.codex` | `/home/pde/.codex` | rw | codex flavor only |
 | `~/.gemini` | `/home/pde/.gemini` | rw | gemini flavor only |
 | `~/.config/gcloud` | `/home/pde/.config/gcloud` | rw | gemini flavor only |
-| `/var/run/docker.sock` | `/var/run/docker.sock` | rw | |
 
 Image stays `claude-code-dev:latest` (already matches `compose.yaml`, no change needed).
-Command stays `docker run --rm -it ... "$IMAGE" "$@"`; empty `"$@"` falls through to this image's
-own `CMD` (`/bin/zsh -l`), not an auto-launched `claude`, since this repo's Dockerfile doesn't
-define a CLI-launching default the way upstream's does. Only the codex/gemini `--yolo`
-auto-injection (already in the script) forces an explicit command for those two flavors.
+Command is `docker run --rm ... "$IMAGE" "$@"`. All three flavors inject their own CLI's command
+when invoked with no arguments or with a leading-flag argument: `codex --yolo`, `gemini --yolo`,
+or plain `claude` for the default flavor, matching the `--container-help` text's promise that
+`claude-container` launches Claude Code interactively. The final whole-branch review found the
+claude flavor missing this injection (it fell through to the image's own login-shell `CMD`
+instead) and added it for parity with codex/gemini.
 
 ## Layout and install
 
