@@ -81,9 +81,17 @@ auto-injection (already in the script) forces an explicit command for those two 
 
 ## Testing
 
-No automated test harness exists for this repo's shell scripts beyond `tests/test-compose`. This
-launcher gets a manual smoke check after implementation: run `claude-container --container-help`
-outside a git identity setup dependency, confirm the mount list matches this table with
-`docker inspect` on the launched container's `Mounts`, and confirm `gh --version` / `git
-ls-remote` work inside it using the forwarded agent (same check `build.zsh` already performs for
-the build path, run here against the launched-not-built container).
+This repo already has an automated-test convention for its shell scripts (`tests/test-build`,
+`tests/test-compose`): a zsh script that substitutes `tests/fixtures/bin/docker` onto `PATH` to
+intercept Docker calls instead of running them for real. The launcher follows that convention
+rather than a manual check: `tests/test-claude-container` extends the shared `docker` stub with
+`run` and `image inspect` modes, then asserts on the captured `docker run` argv — the mount table
+above, the `SSH_AUTH_SOCK` value, flavor-specific mounts and `--yolo` injection for
+codex/gemini, no skip-permissions injection for claude, `--container-help` working without
+Docker, and the missing-image error carrying a build hint.
+
+That covers everything the script *constructs*. It doesn't cover whether the forwarded agent
+actually authenticates once a real container is running — confirming that (`gh --version`, `git
+ls-remote` against a real launched container) needs a real Docker Desktop + 1Password session,
+the same manual dependency `build.zsh`'s own `_verify_private_git_authentication` has for the
+build path, and is left as a follow-up check rather than part of this automated suite.
