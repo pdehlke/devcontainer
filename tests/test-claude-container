@@ -1,0 +1,209 @@
+#!/usr/bin/env zsh
+# test-claude-container -- Exercise scripts/claude-container through controlled command boundaries.
+# Author: Pete Ehlke
+# Date: 2026-08-18
+
+setopt ERR_EXIT NO_UNSET PIPE_FAIL WARN_CREATE_GLOBAL
+
+readonly REPO_ROOT="${0:A:h:h}"
+readonly ORIGINAL_PATH="${PATH}"
+readonly STUB_PATH="${REPO_ROOT}/tests/fixtures/bin"
+readonly LAUNCHER="${REPO_ROOT}/scripts/claude-container"
+typeset -g TEST_ROOT=""
+typeset -g BIN_ROOT=""
+
+function fail() {
+  local message="${1}"
+
+  print -u2 -r -- "FAIL: ${message}"
+  return 1
+}
+
+# Remove only the restricted directory created by this test process.
+function _cleanup() {
+  if [[ -n "${TEST_ROOT}" && -d "${TEST_ROOT}" ]]; then
+    command rm -rf -- "${TEST_ROOT}"
+  fi
+}
+
+function TRAPEXIT() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+# ERR_EXIT can bypass TRAPEXIT when a command fails inside a zsh function.
+function TRAPZERR() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+function test_default_flavor_mounts_and_forwards_ssh_agent() {
+  local case_home="${TEST_ROOT}/default-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}/.claude"
+  : >"${case_home}/.gitconfig"
+  : >"${case_home}/.claude.json"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --quiet -- "${case_home}:${case_home}" "${run_args}" || \
+    fail "current directory is not mounted at its own path"
+  grep --fixed-strings --quiet -- \
+    '/run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock' "${run_args}" || \
+    fail "SSH agent proxy socket is not mounted"
+  grep --fixed-strings --line-regexp --quiet -- \
+    'SSH_AUTH_SOCK=/home/pde/.1password/agent.sock' "${run_args}" || \
+    fail "SSH_AUTH_SOCK does not point at the in-image 1Password symlink"
+  grep --fixed-strings --quiet -- '/var/run/docker.sock:/var/run/docker.sock' "${run_args}" || \
+    fail "Docker socket is not mounted straight through"
+  grep --fixed-strings --quiet -- "${case_home}/.gitconfig:/home/pde/.gitconfig:ro" "${run_args}" || \
+    fail ".gitconfig is not mounted read-only"
+  grep --fixed-strings --quiet -- "${case_home}/.claude:/home/pde/.claude:rw" "${run_args}" || \
+    fail "~/.claude is not mounted read-write"
+  grep --fixed-strings --quiet -- "${case_home}/.claude.json:/home/pde/.claude.json:rw" "${run_args}" || \
+    fail "~/.claude.json is not mounted read-write"
+  grep --fixed-strings --line-regexp --quiet -- 'claude-code-dev:latest' "${run_args}" || \
+    fail "image name does not match compose.yaml"
+  if grep --fixed-strings --quiet -- 'dangerously-skip-permissions' "${run_args}"; then
+    fail "claude flavor auto-injects skip-permissions, which was explicitly deferred"
+  fi
+  if grep --fixed-strings --quiet -- "${case_home}/.codex" "${run_args}"; then
+    fail "claude flavor mounts codex config"
+  fi
+}
+
+function test_codex_flavor_injects_yolo_and_mounts_codex_config() {
+  local case_home="${TEST_ROOT}/codex-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}/.codex"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    OPENAI_API_KEY="test-key" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/codex-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'codex' "${run_args}" || \
+    fail "codex is not invoked"
+  grep --fixed-strings --line-regexp --quiet -- '--yolo' "${run_args}" || \
+    fail "--yolo is not auto-injected for codex"
+  grep --fixed-strings --quiet -- "${case_home}/.codex:/home/pde/.codex:rw" "${run_args}" || \
+    fail "~/.codex is not mounted read-write"
+  if grep --fixed-strings --quiet -- "${case_home}/.claude:" "${run_args}"; then
+    fail "codex flavor mounts claude config"
+  fi
+}
+
+function test_gemini_flavor_injects_yolo_and_mounts_gemini_config() {
+  local case_home="${TEST_ROOT}/gemini-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}/.gemini" "${case_home}/.config/gcloud"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/gemini-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'gemini' "${run_args}" || \
+    fail "gemini is not invoked"
+  grep --fixed-strings --line-regexp --quiet -- '--yolo' "${run_args}" || \
+    fail "--yolo is not auto-injected for gemini"
+  grep --fixed-strings --quiet -- "${case_home}/.gemini:/home/pde/.gemini:rw" "${run_args}" || \
+    fail "~/.gemini is not mounted read-write"
+  grep --fixed-strings --quiet -- \
+    "${case_home}/.config/gcloud:/home/pde/.config/gcloud:rw" "${run_args}" || \
+    fail "~/.config/gcloud is not mounted read-write"
+}
+
+function test_explicit_command_skips_yolo_injection() {
+  local case_home="${TEST_ROOT}/explicit-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/codex-container" bash )
+
+  grep --fixed-strings --line-regexp --quiet -- 'bash' "${run_args}" || \
+    fail "explicit command is not passed through"
+  if grep --fixed-strings --line-regexp --quiet -- '--yolo' "${run_args}"; then
+    fail "--yolo is injected even with an explicit command"
+  fi
+}
+
+function test_container_help_does_not_require_docker() {
+  local case_home="${TEST_ROOT}/help-home"
+  local stdout_file="${case_home}/stdout"
+
+  mkdir -p "${case_home}"
+  env -i PATH="/usr/bin:/bin" HOME="${case_home}" \
+    "${BIN_ROOT}/claude-container" --container-help >"${stdout_file}"
+
+  grep --fixed-strings --quiet -- 'Usage:' "${stdout_file}" || fail "--container-help prints no usage"
+}
+
+function test_missing_image_errors_with_build_hint() {
+  local case_home="${TEST_ROOT}/missing-image-home"
+  local stderr_file="${case_home}/stderr"
+  local exit_code=0
+
+  mkdir -p "${case_home}"
+  if env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_DOCKER_IMAGE_INSPECT_STATUS=1 \
+    "${BIN_ROOT}/claude-container" >/dev/null 2>"${stderr_file}"; then
+    exit_code=0
+  else
+    exit_code="${?}"
+  fi
+
+  (( exit_code != 0 )) || fail "launcher succeeds with no image built"
+  grep --fixed-strings --quiet -- 'build.zsh' "${stderr_file}" || \
+    fail "missing-image error omits the build hint"
+}
+
+function main() {
+  local test_root
+
+  test_root=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-claude-container.XXXXXXXX")
+  typeset -g TEST_ROOT="${test_root:A}"
+  chmod 0700 "${TEST_ROOT}"
+
+  typeset -g BIN_ROOT="${TEST_ROOT}/bin"
+  mkdir -p "${BIN_ROOT}"
+  ln -s "${LAUNCHER}" "${BIN_ROOT}/claude-container"
+  ln -s "${LAUNCHER}" "${BIN_ROOT}/codex-container"
+  ln -s "${LAUNCHER}" "${BIN_ROOT}/gemini-container"
+
+  test_default_flavor_mounts_and_forwards_ssh_agent
+  print -r -- "PASS: default flavor mounts claude config and forwards the SSH agent"
+  test_codex_flavor_injects_yolo_and_mounts_codex_config
+  print -r -- "PASS: codex flavor injects --yolo and mounts codex config"
+  test_gemini_flavor_injects_yolo_and_mounts_gemini_config
+  print -r -- "PASS: gemini flavor injects --yolo and mounts gemini config"
+  test_explicit_command_skips_yolo_injection
+  print -r -- "PASS: an explicit command skips --yolo injection"
+  test_container_help_does_not_require_docker
+  print -r -- "PASS: --container-help works without Docker"
+  test_missing_image_errors_with_build_hint
+  print -r -- "PASS: a missing image fails with a build hint"
+}
+
+main "${@}"
