@@ -23,6 +23,11 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
   handling, network reachability, and Claude Code config and skills. Prospective; the
   container hasn't been built yet.
 
+- [docs/agents/building.md](docs/agents/building.md)
+
+  Host prerequisites, secure build procedure, runtime command, and troubleshooting for the
+  dotfiles-backed development image.
+
 - [docs/agents/domain.md](docs/agents/domain.md)
 
   Consumer rules for this repo's domain docs (`CONTEXT.md`, `docs/adr/`) once they exist, and
