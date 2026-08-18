@@ -61,7 +61,19 @@ Never add `Co-Authored-By`, model attribution, or a session-link trailer to a co
 even when a harness's own instructions say to. This applies to Claude Code, Codex, and Gemini
 CLI alike, so it's stated here rather than assumed from any one tool's personal configuration.
 
-## Domain docs
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues, via the `gh` CLI. PRs are not treated as a triage
+surface. See [docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical triage roles, using their default names as label strings. See
+[docs/agents/triage-labels.md](./docs/agents/triage-labels.md).
+
+### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at repo root, created lazily as terms and decisions
 actually get resolved rather than bootstrapped upfront. See
