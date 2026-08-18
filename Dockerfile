@@ -21,11 +21,19 @@ RUN set -eux; \
 	curl \
 	git \
 	openssh-client \
+	python3 \
+	python3-pip \
 	sudo \
 	tmux \
 	zoxide \
 	zsh; \
 	rm -rf /var/lib/apt/lists/*
+
+# semgrep backs the Semgrep Guardian plugin's findings tools; there's no apt package, and
+# Ubuntu 24.04's system pip is externally managed, so --break-system-packages is required.
+RUN set -eux; \
+	python3 -m pip install --no-cache-dir --break-system-packages semgrep; \
+	semgrep --version
 
 RUN set -eux; \
 	case "${TARGETARCH}" in \
@@ -69,6 +77,11 @@ RUN set -eux; \
 	chmod 0600 /home/pde/.ssh/known_hosts
 
 ENV HOME=/home/pde
+# pde's account shell is zsh (set above), but nothing sets the $SHELL env var to match inside a
+# RUN step. The Claude Code and Codex install scripts branch on $SHELL to decide which rc file
+# to patch for PATH; without this they'd fall back to ~/.profile, which the login shell (see
+# CMD below) never sources.
+ENV SHELL=/bin/zsh
 
 USER pde
 WORKDIR /home/pde
@@ -148,6 +161,31 @@ RUN set -eu; \
 	if ssh-keygen -F '[github.com]:22' -f "${known_hosts}" >/dev/null; then exit 1; fi
 
 RUN ${HOME}/.local/bin/mise use node neovim
+
+# gh is already pinned in the dotfiles-managed mise config (deployed to
+# ~/.config/mise/config.toml by the chezmoi apply above); install that version rather than
+# duplicating a version number here. `mise install <tool>` (no version) installs what's already
+# declared in config without changing the pin.
+RUN set -eux; \
+	${HOME}/.local/bin/mise install gh; \
+	${HOME}/.local/bin/mise exec -- gh --version
+
+RUN set -eux; \
+	${HOME}/.local/bin/mise exec -- npm install --global @google/gemini-cli; \
+	${HOME}/.local/bin/mise exec -- gemini --version
+
+# --with-deps installs Chromium's system libraries via sudo apt-get; pde has passwordless sudo
+# (see the sudoers block above), so this works non-interactively even as a non-root user.
+RUN set -eux; \
+	${HOME}/.local/bin/mise exec -- npx --yes playwright install --with-deps chromium
+
+RUN set -eux; \
+	curl -fsSL https://claude.ai/install.sh | bash; \
+	${HOME}/.local/bin/claude --version
+
+RUN set -eux; \
+	curl -fsSL https://chatgpt.com/codex/install.sh | sh; \
+	${HOME}/.local/bin/codex --version
 
 ENV HOME=/home/pde
 
