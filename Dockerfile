@@ -172,6 +172,7 @@ RUN set -eux; \
 
 RUN set -eux; \
 	${HOME}/.local/bin/mise exec -- npm install --global @google/gemini-cli; \
+	${HOME}/.local/bin/mise reshim; \
 	${HOME}/.local/bin/mise exec -- gemini --version
 
 # --with-deps installs Chromium's system libraries via sudo apt-get; pde has passwordless sudo
@@ -187,8 +188,17 @@ RUN set -eux; \
 	curl -fsSL https://chatgpt.com/codex/install.sh | sh; \
 	${HOME}/.local/bin/codex --version
 
-ENV HOME=/home/pde
+# `docker run <image> <command>` (used by scripts/claude-container, and by exec-form `docker run`
+# generally) never starts a shell, so none of .zshrc's PATH setup (mise activate, the native
+# installers' own PATH patching) ever runs -- the image's baked-in PATH is just the base Ubuntu
+# default. Without this, `docker run claude-code-dev:latest claude` fails with
+# "exec: claude: executable file not found in $PATH". This makes the native-installed binaries
+# (claude, codex, mise itself) and every mise-managed tool (via its shim, which resolves
+# correctly without any shell activation) reachable by bare name for both exec-form `docker run`
+# and interactive shells alike.
+ENV PATH="/home/pde/.local/bin:/home/pde/.local/share/mise/shims:${PATH}"
 
+ENV HOME=/home/pde
 USER pde
 WORKDIR /home/pde
 CMD ["/bin/zsh", "-l"]
