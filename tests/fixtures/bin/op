@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+whoami)
+  exit "${TEST_OP_WHOAMI_STATUS:-0}"
+  ;;
+read)
+  [ "${TEST_OP_READ_STATUS:-0}" -eq 0 ] || exit "${TEST_OP_READ_STATUS}"
+  case "${2:-}" in
+  op://test/item/identity)
+    printf '%s\n' 'AGE-SECRET-KEY-TEST'
+    ;;
+  op://test/item/recipient)
+    printf '%s\n' 'age1testrecipient'
+    ;;
+  *)
+    exit 64
+    ;;
+  esac
+  ;;
+*)
+  exit 64
+  ;;
+esac

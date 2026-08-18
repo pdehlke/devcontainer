@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+[ "${1:-}" = '-L' ] || exit 64
+printf '%s\n' "${TEST_HOST_AGENT_KEYS:?TEST_HOST_AGENT_KEYS is required}"

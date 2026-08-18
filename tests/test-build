@@ -1,0 +1,152 @@
+#!/usr/bin/env zsh
+# test-build -- Exercise build.zsh through controlled command boundaries.
+# Author: Pete Ehlke
+# Date: 2026-08-18
+
+setopt ERR_EXIT NO_UNSET PIPE_FAIL WARN_CREATE_GLOBAL
+
+readonly REPO_ROOT="${0:A:h:h}"
+readonly ORIGINAL_PATH="${PATH}"
+readonly STUB_PATH="${REPO_ROOT}/tests/fixtures/bin"
+typeset -g TEST_ROOT=""
+typeset -g TEST_AGENT_SOCKET=""
+
+function fail() {
+  local message="${1}"
+
+  print -u2 -r -- "FAIL: ${message}"
+  return 1
+}
+
+# Remove only the restricted directory created by this test process.
+function _cleanup() {
+  if [[ -n "${TEST_ROOT}" && -d "${TEST_ROOT}" ]]; then
+    command rm -rf -- "${TEST_ROOT}"
+  fi
+}
+
+# Preserve the test result while ensuring captured output is removed.
+function TRAPEXIT() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+function test_missing_identity_reference() {
+  local stdout_file="${TEST_ROOT}/missing-reference.stdout"
+  local stderr_file="${TEST_ROOT}/missing-reference.stderr"
+
+  if env -u DOTFILES_AGE_IDENTITY_REF -u DOTFILES_AGE_RECIPIENT_REF \
+    "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"; then
+    fail "build succeeds without DOTFILES_AGE_IDENTITY_REF"
+  fi
+
+  [[ ! -s "${stdout_file}" ]] || fail "missing-reference failure writes stdout"
+  grep -Fq 'DOTFILES_AGE_IDENTITY_REF' "${stderr_file}" || \
+    fail "missing-reference failure omits variable name"
+}
+
+function test_success_cleans_secret_files() {
+  local case_tmp="${TEST_ROOT}/success-tmp"
+  local build_marker="${TEST_ROOT}/success-build"
+  local git_probe_marker="${TEST_ROOT}/success-git-probe"
+  local stdout_file="${TEST_ROOT}/success.stdout"
+  local stderr_file="${TEST_ROOT}/success.stderr"
+  local remaining_files
+
+  mkdir -m 0700 "${case_tmp}"
+
+  TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
+    DOTFILES_AGE_IDENTITY_REF='op://test/item/identity' \
+    DOTFILES_AGE_RECIPIENT_REF='op://test/item/recipient' \
+    TEST_DOCKER_BUILD_MARKER="${build_marker}" \
+    TEST_GIT_PROBE_MARKER="${git_probe_marker}" \
+    TEST_HOST_AGENT_KEYS='ssh-ed25519 AAAATEST build-test' \
+    "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"
+
+  [[ -f "${build_marker}" ]] || fail "successful path skips Compose build"
+  [[ -f "${git_probe_marker}" ]] || fail "successful path skips agent-only Git probe"
+  [[ ! -s "${stdout_file}" ]] || fail "successful build exposes key data"
+  remaining_files=$(find "${case_tmp}" -mindepth 1 -print -quit)
+  [[ -z "${remaining_files}" ]] || fail "successful build leaves secret files"
+}
+
+function test_mismatched_agent_keys_fail_closed() {
+  local case_tmp="${TEST_ROOT}/mismatch-tmp"
+  local build_marker="${TEST_ROOT}/mismatch-build"
+  local git_probe_marker="${TEST_ROOT}/mismatch-git-probe"
+  local stdout_file="${TEST_ROOT}/mismatch.stdout"
+  local stderr_file="${TEST_ROOT}/mismatch.stderr"
+  local remaining_files
+
+  mkdir -m 0700 "${case_tmp}"
+
+  if TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
+    DOTFILES_AGE_IDENTITY_REF='op://test/item/identity' \
+    DOTFILES_AGE_RECIPIENT_REF='op://test/item/recipient' \
+    TEST_DOCKER_BUILD_MARKER="${build_marker}" \
+    TEST_GIT_PROBE_MARKER="${git_probe_marker}" \
+    TEST_HOST_AGENT_KEYS='ssh-ed25519 AAAAHOST build-test' \
+    TEST_CONTAINER_AGENT_KEYS='ssh-ed25519 AAAACONTAINER build-test' \
+    "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"; then
+    fail "build succeeds with mismatched agent identities"
+  fi
+
+  [[ -f "${build_marker}" ]] || fail "mismatch path skips Compose build"
+  [[ ! -f "${git_probe_marker}" ]] || fail "mismatch path reaches Git probe"
+  [[ ! -s "${stdout_file}" ]] || fail "mismatch failure writes key data to stdout"
+  grep -Fq 'agent identities do not match' "${stderr_file}" || \
+    fail "mismatch failure omits generic error"
+  if grep -Eq 'AAAAHOST|AAAACONTAINER' "${stderr_file}"; then
+    fail "mismatch failure exposes public keys"
+  fi
+
+  remaining_files=$(find "${case_tmp}" -mindepth 1 -print -quit)
+  [[ -z "${remaining_files}" ]] || fail "mismatch failure leaves secret files"
+}
+
+function test_term_signal_cleans_secret_files() {
+  local signal_root="${TEST_ROOT}/signal/devcontainer-build.signal"
+  local exit_code=0
+
+  mkdir -p -m 0700 "${signal_root}"
+  print -r -- 'temporary secret' >"${signal_root}/secret"
+
+  if (
+    source "${REPO_ROOT}/build.zsh"
+    BUILD_SCRATCH_DIR="${signal_root}"
+    TRAPTERM 15
+  ); then
+    exit_code=0
+  else
+    exit_code="${?}"
+  fi
+
+  (( exit_code == 143 )) || fail "TERM handler returns ${exit_code} instead of 143"
+  [[ ! -e "${signal_root}" ]] || fail "TERM handler leaves secret files"
+}
+
+function main() {
+  local REPLY
+
+  TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-build.XXXXXXXX")
+  chmod 0700 "${TEST_ROOT}"
+  TEST_AGENT_SOCKET="${TEST_ROOT}/agent.sock"
+
+  zmodload zsh/net/socket
+  zsocket -l "${TEST_AGENT_SOCKET}"
+
+  test_missing_identity_reference
+  print -r -- "PASS: missing identity reference"
+  test_mismatched_agent_keys_fail_closed
+  print -r -- "PASS: mismatched agent identities fail closed"
+  test_success_cleans_secret_files
+  print -r -- "PASS: successful build cleans secret files"
+  test_term_signal_cleans_secret_files
+  print -r -- "PASS: TERM signal cleans secret files"
+}
+
+main "${@}"

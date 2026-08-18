@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+info)
+  exit 0
+  ;;
+compose)
+  case "${2:-}" in
+  version)
+    exit 0
+    ;;
+  build)
+    identity_file="${DOTFILES_AGE_IDENTITY_FILE:?identity file is required}"
+    recipient_file="${DOTFILES_AGE_RECIPIENT_FILE:?recipient file is required}"
+    [ -s "${identity_file}" ]
+    [ -s "${recipient_file}" ]
+    [ "$(sed -n '1p' "${identity_file}")" = 'AGE-SECRET-KEY-TEST' ]
+    [ "$(sed -n '1p' "${recipient_file}")" = 'age1testrecipient' ]
+    : >"${TEST_DOCKER_BUILD_MARKER:?build marker is required}"
+    ;;
+  run)
+    case "${*}" in
+    *'ssh-add -L'*)
+      printf '%s\n' "${TEST_CONTAINER_AGENT_KEYS:-${TEST_HOST_AGENT_KEYS}}"
+      ;;
+    *'git ls-remote'*)
+      : >"${TEST_GIT_PROBE_MARKER:?Git probe marker is required}"
+      exit "${TEST_GIT_PROBE_STATUS:-0}"
+      ;;
+    *)
+      exit 64
+      ;;
+    esac
+    ;;
+  *)
+    exit 64
+    ;;
+  esac
+  ;;
+*)
+  exit 64
+  ;;
+esac
