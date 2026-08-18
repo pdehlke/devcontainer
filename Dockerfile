@@ -8,7 +8,7 @@ ARG TARGETARCH
 ARG CHEZMOI_VERSION=2.71.1
 ARG CHEZMOI_AMD64_SHA256=e1fb16c962644d57f4d451c324aa86163d00faf5d035500f41fb48943a66dfed
 ARG CHEZMOI_ARM64_SHA256=6e88c8150d3d54533ba2f335a52c2ac7b67259c525ba0f19091fc078b6852154
-ARG GITHUB_ED25519_HOST_KEY="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+ARG GITHUB_ED25519_KNOWN_HOSTS_LINE="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 
 USER root
 
@@ -59,9 +59,9 @@ RUN set -eux; \
 # Keep clone trust outside dotfiles-managed home so public apply cannot replace it.
 RUN set -eux; \
     install --directory --owner=pde --group=pde --mode=0700 /home/pde/.ssh; \
-    printf '%s\n' "${GITHUB_ED25519_HOST_KEY}" >/etc/ssh/github_known_hosts; \
+    printf '%s\n' "${GITHUB_ED25519_KNOWN_HOSTS_LINE}" >/etc/ssh/github_known_hosts; \
     chmod 0444 /etc/ssh/github_known_hosts; \
-    printf '%s\n' "${GITHUB_ED25519_HOST_KEY}" >/home/pde/.ssh/known_hosts; \
+    printf '%s\n' "${GITHUB_ED25519_KNOWN_HOSTS_LINE}" >/home/pde/.ssh/known_hosts; \
     chown pde:pde /home/pde/.ssh/known_hosts; \
     chmod 0600 /home/pde/.ssh/known_hosts
 
@@ -123,7 +123,7 @@ RUN set -eu; \
     ssh-keygen -R github.com -f "${known_hosts}" >/dev/null; \
     ssh-keygen -R '[github.com]:22' -f "${known_hosts}" >/dev/null; \
     if [[ -e "${known_hosts}.old" ]]; then rm -- "${known_hosts}.old"; fi; \
-    printf '%s\n' "${GITHUB_ED25519_HOST_KEY}" >>"${known_hosts}"; \
+    printf '%s\n' "${GITHUB_ED25519_KNOWN_HOSTS_LINE}" >>"${known_hosts}"; \
     chmod 0600 "${known_hosts}"; \
     install --directory --mode=0700 /home/pde/.1password; \
     ln --symbolic --force --no-dereference \
@@ -138,12 +138,12 @@ RUN set -eu; \
       'userknownhostsfile /home/pde/.ssh/known_hosts' <<<"${effective_config}"; \
     github_entry_count="$( \
       ssh-keygen -F github.com -f "${known_hosts}" | \
-        grep --fixed-strings --line-regexp --count "${GITHUB_ED25519_HOST_KEY}" \
+        grep --fixed-strings --line-regexp --count "${GITHUB_ED25519_KNOWN_HOSTS_LINE}" \
     )"; \
     test "${github_entry_count}" = 1; \
     if ssh-keygen -F '[github.com]:22' -f "${known_hosts}" >/dev/null; then exit 1; fi
 
-ENV SSH_AUTH_SOCK=/home/pde/.1password/agent.sock
+ENV HOME=/home/pde
 
 USER pde
 WORKDIR /home/pde

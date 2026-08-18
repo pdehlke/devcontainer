@@ -324,8 +324,9 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
 - [ ] **Step 7: Finalize image defaults**
 
-  Set `USER pde`, `HOME=/home/pde`, `SSH_AUTH_SOCK=/home/pde/.1password/agent.sock`,
-  `WORKDIR /home/pde`, and default command `/bin/zsh -l`.
+  Set `USER pde`, `HOME=/home/pde`, `WORKDIR /home/pde`, and default command
+  `/bin/zsh -l`. Keep runtime `SSH_AUTH_SOCK` in Compose, which owns the corresponding
+  Docker Desktop socket mount.
 
 - [ ] **Step 8: Run Dockerfile check and verify GREEN**
 

@@ -106,9 +106,9 @@ The Dockerfile performs these operations in order:
     `/home/pde/.1password/agent.sock` as a symlink to Docker Desktop's proxy
     path, then verify the effective `ssh -G github.com` values and exact
     `known_hosts` entry without printing keys.
-11. Make `pde` the final image user, set `/home/pde` as its home and working
-    directory, and set `SSH_AUTH_SOCK` to
-    `/home/pde/.1password/agent.sock`.
+11. Make `pde` the final image user and set `/home/pde` as its home and working
+    directory. Compose sets `SSH_AUTH_SOCK` to `/home/pde/.1password/agent.sock`
+    when it attaches Docker Desktop's runtime proxy.
 
 The public and private repositories remain full Git checkouts so later updates
 can use their configured SSH remotes.
