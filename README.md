@@ -40,7 +40,12 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
 
 ### Designs
 
-- [docs/superpowers/specs/2026-08-18-devcontainer-dotfiles-design.md](docs/superpowers/specs/2026-08-18-devcontainer-dotfiles-design.md)
+- [Dotfiles image design](docs/superpowers/specs/2026-08-18-devcontainer-dotfiles-design.md)
 
   Build-time public and private dotfiles provisioning, scoped secret injection, and 1Password
   SSH-agent forwarding for image builds and running containers.
+
+- [Dotfiles implementation plan](docs/superpowers/plans/2026-08-18-devcontainer-dotfiles.md)
+
+  Test-first implementation tasks for the build wrapper, Compose contract, dotfiles image, and
+  integrated verification.
