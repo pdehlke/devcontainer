@@ -1,6 +1,6 @@
 services:
   devcontainer:
-    image: pde-devcontainer:local
+    image: claude-code-dev:latest
     build:
       context: .
       ssh:

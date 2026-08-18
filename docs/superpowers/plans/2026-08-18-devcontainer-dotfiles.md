@@ -197,7 +197,7 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
 - Consumes: `DOTFILES_AGE_IDENTITY_FILE`, `DOTFILES_AGE_RECIPIENT_FILE`, and BuildKit SSH ID
   `default`.
-- Produces: service `devcontainer`, local image `pde-devcontainer:local`, build secrets, build
+- Produces: service `devcontainer`, local image `claude-code-dev:latest`, build secrets, build
   SSH forwarding, runtime user/group settings, and Docker Desktop runtime socket mount.
 
 - [ ] **Step 1: Write rendered-configuration test**
@@ -231,7 +231,7 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 - [ ] **Step 3: Implement Compose configuration**
 
   Define one `devcontainer` service. Configure `build.context: .`, `build.ssh: [default]`, both
-  external file-backed build secrets, image `pde-devcontainer:local`, user `1000:1000`,
+  external file-backed build secrets, image `claude-code-dev:latest`, user `1000:1000`,
   `group_add: ["0"]`, interactive zsh defaults, and Docker Desktop's runtime socket bind mount.
   Default absent secret-file variables to `/dev/null` so runtime commands need no build-only
   environment. The wrapper supplies real files during builds, and the Dockerfile's required,

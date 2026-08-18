@@ -62,7 +62,7 @@ function test_rendered_compose_contract() {
       $service.build.ssh == ["default"] and
       ([$service.build.secrets[].source] | sort) ==
         ["dotfiles_age_identity", "dotfiles_age_recipient"] and
-      $service.image == "pde-devcontainer:local" and
+      $service.image == "claude-code-dev:latest" and
       $service.user == "1000:1000" and
       $service.group_add == ["0"] and
       $service.environment.SSH_AUTH_SOCK ==
