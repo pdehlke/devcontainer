@@ -6,4 +6,5 @@ approval_policy = "never"
 writable_roots = [
 	"/Users/pde/src/github.com/pdehlke/devcontainer/.git",
 	"/Users/pde/src/github.com/pdehlke/devcontainer/.codex",
+	"/Users/pde/.docker",
 ]
