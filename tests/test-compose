@@ -1,0 +1,92 @@
+#!/usr/bin/env zsh
+# test-compose -- Verify the rendered Docker Compose contract.
+# Author: Pete Ehlke
+# Date: 2026-08-18
+
+setopt ERR_EXIT NO_UNSET PIPE_FAIL WARN_CREATE_GLOBAL
+
+readonly REPO_ROOT="${0:A:h:h}"
+typeset -g TEST_ROOT=""
+
+function fail() {
+  local message="${1}"
+
+  print -u2 -r -- "FAIL: ${message}"
+  return 1
+}
+
+# Remove only the restricted directory created by this test process.
+function _cleanup() {
+  if [[ -n "${TEST_ROOT}" && -d "${TEST_ROOT}" ]]; then
+    command rm -rf -- "${TEST_ROOT}"
+  fi
+}
+
+function TRAPEXIT() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+# ERR_EXIT can bypass TRAPEXIT when a command fails inside a zsh function.
+function TRAPZERR() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+function test_rendered_compose_contract() {
+  local identity_file="${TEST_ROOT}/age-identity"
+  local recipient_file="${TEST_ROOT}/age-recipient"
+  local rendered_config
+
+  print -r -- 'AGE-SECRET-KEY-TEST' >"${identity_file}"
+  print -r -- 'age1testrecipient' >"${recipient_file}"
+  chmod 0600 "${identity_file}" "${recipient_file}"
+
+  rendered_config=$(
+    DOTFILES_AGE_IDENTITY_FILE="${identity_file}" \
+      DOTFILES_AGE_RECIPIENT_FILE="${recipient_file}" \
+      docker compose --file "${REPO_ROOT}/compose.yaml" config --format json
+  )
+
+  jq -e \
+    --arg repo_root "${REPO_ROOT}" \
+    --arg identity_file "${identity_file}" \
+    --arg recipient_file "${recipient_file}" '
+      .services.devcontainer as $service |
+      $service.build.context == $repo_root and
+      $service.build.dockerfile == "Dockerfile" and
+      $service.build.ssh == ["default"] and
+      ([$service.build.secrets[].source] | sort) ==
+        ["dotfiles_age_identity", "dotfiles_age_recipient"] and
+      $service.image == "pde-devcontainer:local" and
+      $service.user == "1000:1000" and
+      $service.group_add == ["0"] and
+      $service.environment.SSH_AUTH_SOCK ==
+        "/home/pde/.1password/agent.sock" and
+      $service.command == ["/bin/zsh", "-l"] and
+      $service.stdin_open == true and
+      $service.tty == true and
+      ($service.volumes | length) == 1 and
+      $service.volumes[0].type == "bind" and
+      $service.volumes[0].source ==
+        "/run/host-services/ssh-auth.sock" and
+      $service.volumes[0].target ==
+        "/run/host-services/ssh-auth.sock" and
+      .secrets.dotfiles_age_identity.file == $identity_file and
+      .secrets.dotfiles_age_recipient.file == $recipient_file
+    ' <<<"${rendered_config}" >/dev/null || fail "rendered Compose contract differs"
+}
+
+function main() {
+  TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-compose.XXXXXXXX")
+  chmod 0700 "${TEST_ROOT}"
+
+  test_rendered_compose_contract
+  print -r -- "PASS: rendered Compose contract"
+}
+
+main "${@}"

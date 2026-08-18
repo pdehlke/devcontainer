@@ -1,0 +1,30 @@
+services:
+  devcontainer:
+    image: pde-devcontainer:local
+    build:
+      context: .
+      ssh:
+        - default
+      secrets:
+        - dotfiles_age_identity
+        - dotfiles_age_recipient
+    user: "1000:1000"
+    group_add:
+      - "0"
+    environment:
+      SSH_AUTH_SOCK: /home/pde/.1password/agent.sock
+    volumes:
+      - type: bind
+        source: /run/host-services/ssh-auth.sock
+        target: /run/host-services/ssh-auth.sock
+    stdin_open: true
+    tty: true
+    command:
+      - /bin/zsh
+      - -l
+
+secrets:
+  dotfiles_age_identity:
+    file: ${DOTFILES_AGE_IDENTITY_FILE:?DOTFILES_AGE_IDENTITY_FILE is required}
+  dotfiles_age_recipient:
+    file: ${DOTFILES_AGE_RECIPIENT_FILE:?DOTFILES_AGE_RECIPIENT_FILE is required}
