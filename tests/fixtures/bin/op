@@ -8,10 +8,10 @@ whoami)
 read)
   [ "${TEST_OP_READ_STATUS:-0}" -eq 0 ] || exit "${TEST_OP_READ_STATUS}"
   case "${2:-}" in
-  op://test/item/identity)
+  'op://Private/dotfiles-private age key/private_key')
     printf '%s\n' 'AGE-SECRET-KEY-TEST'
     ;;
-  op://test/item/recipient)
+  'op://Private/dotfiles-private age key/public_key')
     printf '%s\n' 'age1testrecipient'
     ;;
   *)

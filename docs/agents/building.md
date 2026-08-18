@@ -13,36 +13,23 @@ Before building:
 - Unlock 1Password and enable its SSH agent.
 - Select the 1Password SSH agent through `SSH_AUTH_SOCK` and confirm `ssh-add -L` succeeds.
 - Authenticate the 1Password CLI and confirm `op whoami` succeeds.
-- Obtain 1Password secret-reference URIs for the age identity and age recipient used by the
-  private dotfiles repository. A reference starts with `op://`; it is a reference, not the
-  secret value.
 
 The build wrapper requires `docker`, Docker Compose, `op`, `ssh-add`, and standard macOS command
 line tools. It checks each prerequisite before starting the build.
 
 ## Build
 
-From the repository root, read both 1Password references without saving them in shell history:
-
-```zsh
-read -rs 'DOTFILES_AGE_IDENTITY_REF?1Password age identity reference: '
-print
-read -rs 'DOTFILES_AGE_RECIPIENT_REF?1Password age recipient reference: '
-print
-export DOTFILES_AGE_IDENTITY_REF DOTFILES_AGE_RECIPIENT_REF
-```
-
-Run the verified build path:
+From the repository root, run the verified build path:
 
 ```zsh
 ./build.zsh
 ```
 
-The wrapper resolves only those two values with host-side `op read`, writes them to temporary
-mode-`0600` files, forwards the selected SSH agent to BuildKit, and runs the Compose build. It
-then verifies that a running container sees the same agent identities and can authenticate to
-the private Git repository using only that agent. Temporary secret files are removed on success,
-failure, or interruption.
+The wrapper contains the two non-secret 1Password reference URIs. It resolves only those values
+with host-side `op read`, writes them to temporary mode-`0600` files, forwards the selected SSH
+agent to BuildKit, and runs the Compose build. It then verifies that a running container sees the
+same agent identities and can authenticate to the private Git repository using only that agent.
+Temporary secret files are removed on success, failure, or interruption.
 
 Do not replace the wrapper with `docker compose build`. The direct command lacks the secret
 staging, prerequisite checks, cleanup controls, and post-build SSH-agent verification.
@@ -58,7 +45,7 @@ Keep Docker Desktop running and 1Password unlocked, then start an interactive lo
 docker compose run --rm devcontainer
 ```
 
-Runtime does not require the two reference variables or an authenticated `op` session. Compose
+Runtime does not require an authenticated `op` session. Compose
 mounts Docker Desktop's SSH-agent proxy, and the container exposes it at
 `/home/pde/.1password/agent.sock` through `SSH_AUTH_SOCK`.
 

@@ -2,12 +2,14 @@
 # build.zsh -- Build and verify the dotfiles-backed development image.
 # Author: Pete Ehlke
 # Date: 2026-08-18
-# Required environment: SSH_AUTH_SOCK, DOTFILES_AGE_IDENTITY_REF,
-# DOTFILES_AGE_RECIPIENT_REF.
+# Required environment: SSH_AUTH_SOCK.
 # Exit status: zero on a verified build; nonzero on invalid input or failed verification.
 
 setopt ERR_EXIT NO_UNSET PIPE_FAIL WARN_CREATE_GLOBAL
 umask 077
+
+export DOTFILES_AGE_IDENTITY_REF='op://Private/dotfiles-private age key/private_key'
+export DOTFILES_AGE_RECIPIENT_REF='op://Private/dotfiles-private age key/public_key'
 
 readonly BUILD_SCRATCH_PREFIX='devcontainer-build.'
 typeset -g BUILD_SCRATCH_DIR=""

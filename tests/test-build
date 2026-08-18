@@ -41,21 +41,7 @@ function TRAPZERR() {
   return "${exit_code}"
 }
 
-function test_missing_identity_reference() {
-  local stdout_file="${TEST_ROOT}/missing-reference.stdout"
-  local stderr_file="${TEST_ROOT}/missing-reference.stderr"
-
-  if env -u DOTFILES_AGE_IDENTITY_REF -u DOTFILES_AGE_RECIPIENT_REF \
-    "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"; then
-    fail "build succeeds without DOTFILES_AGE_IDENTITY_REF"
-  fi
-
-  [[ ! -s "${stdout_file}" ]] || fail "missing-reference failure writes stdout"
-  grep -Fq 'DOTFILES_AGE_IDENTITY_REF' "${stderr_file}" || \
-    fail "missing-reference failure omits variable name"
-}
-
-function test_success_cleans_secret_files() {
+function test_default_references_build() {
   local case_tmp="${TEST_ROOT}/success-tmp"
   local build_marker="${TEST_ROOT}/success-build"
   local git_probe_marker="${TEST_ROOT}/success-git-probe"
@@ -65,14 +51,17 @@ function test_success_cleans_secret_files() {
 
   mkdir -m 0700 "${case_tmp}"
 
-  TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+  if env -u DOTFILES_AGE_IDENTITY_REF -u DOTFILES_AGE_RECIPIENT_REF \
+    TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
     SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
-    DOTFILES_AGE_IDENTITY_REF='op://test/item/identity' \
-    DOTFILES_AGE_RECIPIENT_REF='op://test/item/recipient' \
     TEST_DOCKER_BUILD_MARKER="${build_marker}" \
     TEST_GIT_PROBE_MARKER="${git_probe_marker}" \
     TEST_HOST_AGENT_KEYS='ssh-ed25519 AAAATEST build-test' \
-    "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"
+    "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"; then
+    :
+  else
+    fail "build requires external reference input"
+  fi
 
   [[ -f "${build_marker}" ]] || fail "successful path skips Compose build"
   [[ -f "${git_probe_marker}" ]] || fail "successful path skips agent-only Git probe"
@@ -93,8 +82,6 @@ function test_mismatched_agent_keys_fail_closed() {
 
   if TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
     SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
-    DOTFILES_AGE_IDENTITY_REF='op://test/item/identity' \
-    DOTFILES_AGE_RECIPIENT_REF='op://test/item/recipient' \
     TEST_DOCKER_BUILD_MARKER="${build_marker}" \
     TEST_GIT_PROBE_MARKER="${git_probe_marker}" \
     TEST_HOST_AGENT_KEYS='ssh-ed25519 AAAAHOST build-test' \
@@ -150,12 +137,10 @@ function main() {
   zmodload zsh/net/socket
   zsocket -l "${TEST_AGENT_SOCKET}"
 
-  test_missing_identity_reference
-  print -r -- "PASS: missing identity reference"
+  test_default_references_build
+  print -r -- "PASS: default references build without input"
   test_mismatched_agent_keys_fail_closed
   print -r -- "PASS: mismatched agent identities fail closed"
-  test_success_cleans_secret_files
-  print -r -- "PASS: successful build cleans secret files"
   test_term_signal_cleans_secret_files
   print -r -- "PASS: TERM signal cleans secret files"
 }

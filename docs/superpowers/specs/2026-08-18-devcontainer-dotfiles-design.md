@@ -21,8 +21,9 @@ cache to a remote service.
 - `compose.yaml` supplies build SSH forwarding and mounts the
   [Docker Desktop runtime SSH-agent socket](https://docs.docker.com/desktop/features/networking/networking-how-tos/#ssh-agent-forwarding).
 
-No 1Password account, session, service-account token, secret value, or secret
-reference URI is stored in the repository.
+No 1Password account, session, service-account token, or secret value is stored in the
+repository. `build.zsh` stores the non-secret 1Password reference URIs for the two required age
+fields so builds require no per-shell reference setup.
 
 ## Host Requirements
 
@@ -34,8 +35,6 @@ The build host must provide:
   that host 1Password socket. This is verified after the build instead of
   inferred from Docker Desktop process configuration.
 - An authenticated 1Password CLI session.
-- `DOTFILES_AGE_IDENTITY_REF` and `DOTFILES_AGE_RECIPIENT_REF`, each containing
-  the corresponding 1Password secret reference URI.
 
 `build.zsh` checks the local tools, environment, and selected host agent before
 invoking Docker. It checks Docker Desktop's runtime proxy after building,
@@ -147,6 +146,8 @@ proves use of the forwarded agent.
 | Option | Decision | Reason |
 | --- | --- | --- |
 | Resolve age values with host-side `op read` and pass file-backed BuildKit secrets | Chosen | Keeps 1Password authentication and the CLI outside the image while limiting secret exposure to one build instruction. |
+| Store the two non-secret 1Password reference URIs in `build.zsh` | Chosen | Removes repeated per-shell setup while keeping secret values in 1Password. This exposes vault, item, and field names in the repository by explicit decision. |
+| Require callers to export both reference URIs | Rejected | Adds repeated interactive setup without protecting the underlying secret values. |
 | Install `op` and authenticate inside the image build | Rejected | Expands credential exposure and conflicts with the requirement that runtime operation has no `op` dependency. |
 | Apply private dotfiles when the container starts | Rejected | Leaves the image incomplete and conflicts with the explicit build-time provisioning requirement. |
 | Copy the age identity into the build context or image | Rejected | Persists a long-lived decryption key in image layers or source control. |

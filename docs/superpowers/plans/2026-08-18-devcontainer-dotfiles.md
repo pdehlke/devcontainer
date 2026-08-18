@@ -47,32 +47,23 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
 **Interfaces:**
 
-- Consumes: `SSH_AUTH_SOCK`, `DOTFILES_AGE_IDENTITY_REF`,
-  `DOTFILES_AGE_RECIPIENT_REF`, host `op`, host `ssh-add`, and Docker Compose.
+- Consumes: `SSH_AUTH_SOCK`, host `op`, host `ssh-add`, and Docker Compose. The two
+  non-secret 1Password age-field references are exported by `build.zsh`.
 - Produces: mode-`0755` `build.zsh`; temporary environment variables
   `DOTFILES_AGE_IDENTITY_FILE` and `DOTFILES_AGE_RECIPIENT_FILE`; image build plus runtime
   agent verification.
 
-- [ ] **Step 1: Write black-box test harness and missing-reference test**
+- [ ] **Step 1: Write black-box test harness and default-reference test**
 
   Create `tests/test-build` with zsh strict mode. Use a mode-`0700` test scratch directory,
   zsh's `zsh/net/socket` module for a temporary Unix socket, and command stubs placed first in
-  `PATH`. The first case runs `build.zsh` without `DOTFILES_AGE_IDENTITY_REF` and asserts a
-  nonzero exit, empty stdout, and stderr naming only the missing variable.
+  `PATH`. The first case runs `build.zsh` with both reference variables removed from its
+  environment and asserts the stubbed build succeeds without input or sensitive output.
 
   ```zsh
-  function test_missing_identity_reference() {
-    local stdout_file="${TEST_ROOT}/missing-reference.stdout"
-    local stderr_file="${TEST_ROOT}/missing-reference.stderr"
-
-    if env -u DOTFILES_AGE_IDENTITY_REF -u DOTFILES_AGE_RECIPIENT_REF \
-      "${REPO_ROOT}/build.zsh" >"${stdout_file}" 2>"${stderr_file}"; then
-      fail "build succeeds without DOTFILES_AGE_IDENTITY_REF"
-    fi
-
-    [[ ! -s "${stdout_file}" ]] || fail "missing-reference failure writes stdout"
-    grep -Fq 'DOTFILES_AGE_IDENTITY_REF' "${stderr_file}" || \
-      fail "missing-reference failure omits variable name"
+  function test_default_references_build() {
+    env -u DOTFILES_AGE_IDENTITY_REF -u DOTFILES_AGE_RECIPIENT_REF \
+      "${REPO_ROOT}/build.zsh"
   }
   ```
 
@@ -86,8 +77,9 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
   Create `build.zsh` with `#!/usr/bin/env zsh`, `ERR_EXIT`, `NO_UNSET`, `PIPE_FAIL`,
   `WARN_CREATE_GLOBAL`, a source-safe `main`, and private helpers. Validate required commands,
-  both nonempty `op://` references, a real SSH agent socket with at least one public key,
-  authenticated `op whoami`, Docker Compose availability, and Docker daemon availability.
+  export and validate both nonempty `op://` references, a real SSH agent socket with at least
+  one public key, authenticated `op whoami`, Docker Compose availability, and Docker daemon
+  availability.
   Validate references before commands or external services so missing-input failures stay
   deterministic. Error messages go to stderr and never include reference values.
 
@@ -103,11 +95,11 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
   }
   ```
 
-- [ ] **Step 4: Run missing-reference test and verify GREEN**
+- [ ] **Step 4: Run default-reference test and verify GREEN**
 
   Run: `zsh tests/test-build`
 
-  Expected: PASS for missing-reference behavior.
+  Expected: PASS without reference variables supplied by the caller.
 
 - [ ] **Step 5: Add successful build and cleanup test**
 
@@ -124,8 +116,6 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
     TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
       SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
-      DOTFILES_AGE_IDENTITY_REF='op://test/item/identity' \
-      DOTFILES_AGE_RECIPIENT_REF='op://test/item/recipient' \
       TEST_AGENT_KEYS='ssh-ed25519 AAAATEST build-test' \
       "${REPO_ROOT}/build.zsh" >"${TEST_ROOT}/success.stdout"
 
@@ -159,7 +149,7 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
   Run: `zsh tests/test-build`
 
-  Expected: PASS for missing-reference and successful-cleanup cases.
+  Expected: PASS for default-reference and successful-cleanup cases.
 
 - [ ] **Step 9: Add mismatched-agent test**
 
@@ -353,7 +343,7 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 **Interfaces:**
 
 - Consumes: all artifacts from Tasks 1 through 3 plus authenticated host Docker Desktop,
-  1Password CLI, 1Password SSH agent, and the two required reference variables.
+  1Password CLI and 1Password SSH agent.
 - Produces: static, build, image, and runtime evidence against the approved design.
 
 - [ ] **Step 1: Run zsh behavior tests**
@@ -387,8 +377,7 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
 
 - [ ] **Step 4: Run full build wrapper**
 
-  With `DOTFILES_AGE_IDENTITY_REF` and `DOTFILES_AGE_RECIPIENT_REF` already set in the host
-  environment and `op whoami` succeeding, run: `./build.zsh`.
+  With `op whoami` succeeding, run: `./build.zsh`.
 
   Expected: image build completes, host/container agent key sets match silently, and agent-only
   private Git probe succeeds.
