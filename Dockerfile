@@ -199,6 +199,11 @@ RUN set -eux; \
 ENV PATH="/home/pde/.local/bin:/home/pde/.local/share/mise/shims:${PATH}"
 
 ENV HOME=/home/pde
+# First-time z4h (zsh4humans) bootstrap -- clones the framework, compiles powerlevel10k, installs
+# fzf/zsh-autosuggestions/etc. -- is expensive and needs network access. Running an interactive
+# shell here once, at build time, bakes that setup into the image layer so it doesn't happen (or
+# doesn't need to happen again) on first real interactive use.
+RUN zsh -ic "exit"
 USER pde
 WORKDIR /home/pde
 CMD ["/bin/zsh", "-l"]
