@@ -25,6 +25,6 @@ services:
 
 secrets:
   dotfiles_age_identity:
-    file: ${DOTFILES_AGE_IDENTITY_FILE:?DOTFILES_AGE_IDENTITY_FILE is required}
+    file: ${DOTFILES_AGE_IDENTITY_FILE:-/dev/null}
   dotfiles_age_recipient:
-    file: ${DOTFILES_AGE_RECIPIENT_FILE:?DOTFILES_AGE_RECIPIENT_FILE is required}
+    file: ${DOTFILES_AGE_RECIPIENT_FILE:-/dev/null}

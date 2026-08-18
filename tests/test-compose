@@ -81,6 +81,23 @@ function test_rendered_compose_contract() {
     ' <<<"${rendered_config}" >/dev/null || fail "rendered Compose contract differs"
 }
 
+function test_runtime_config_without_build_secret_paths() {
+  local rendered_config
+
+  rendered_config=$(
+    env -u DOTFILES_AGE_IDENTITY_FILE -u DOTFILES_AGE_RECIPIENT_FILE \
+      docker compose --file "${REPO_ROOT}/compose.yaml" config --format json
+  )
+
+  jq -e '
+    .services.devcontainer.environment.SSH_AUTH_SOCK ==
+      "/home/pde/.1password/agent.sock" and
+    .secrets.dotfiles_age_identity.file == "/dev/null" and
+    .secrets.dotfiles_age_recipient.file == "/dev/null"
+  ' <<<"${rendered_config}" >/dev/null ||
+    fail "runtime Compose config requires build-only secret paths"
+}
+
 function main() {
   local test_root
 
@@ -90,6 +107,9 @@ function main() {
 
   test_rendered_compose_contract
   print -r -- "PASS: rendered Compose contract"
+
+  test_runtime_config_without_build_secret_paths
+  print -r -- "PASS: runtime config omits build secret requirements"
 }
 
 main "${@}"

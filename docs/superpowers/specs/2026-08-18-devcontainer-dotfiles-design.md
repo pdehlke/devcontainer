@@ -52,7 +52,9 @@ directory on normal exit, errors, and signals.
 Compose passes the files as
 [required BuildKit secrets](https://docs.docker.com/build/building/secrets/). It forwards the
 current SSH agent as BuildKit SSH ID `default`. No `op` credential or executable enters the
-build container.
+build container. When the wrapper does not supply build-secret file paths, Compose defaults the
+file sources to `/dev/null` so runtime commands remain independent of build credentials. A direct
+build still fails closed because the Dockerfile requires nonempty values for the private apply.
 
 The Dockerfile mounts SSH only on clone instructions. It mounts the age values
 only on the private chezmoi apply instruction. Every mount uses the `pde`
@@ -122,7 +124,8 @@ by the host agent.
 
 Runtime Git and SSH commands execute as `pde`. Access still depends on the host
 1Password application running, unlocked, and configured to expose the required
-key.
+key. Runtime Compose commands do not require `op`, 1Password reference variables, or retained
+build-secret files.
 
 After the image build, `build.zsh` obtains normalized public-key lists from the
 host agent selected by `SSH_AUTH_SOCK` and from a one-shot Compose container.

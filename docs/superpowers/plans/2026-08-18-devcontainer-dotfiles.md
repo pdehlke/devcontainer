@@ -217,6 +217,9 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
   build secrets, image name, user `1000:1000`, supplementary group `0`, runtime
   `SSH_AUTH_SOCK`, and bind mount source and target.
 
+  Add a second case with both build-secret file variables unset. Assert that Compose still
+  renders the runtime service and defaults both unused file sources to `/dev/null`.
+
   ```zsh
   rendered_config=$(DOTFILES_AGE_IDENTITY_FILE="${identity_file}" \
     DOTFILES_AGE_RECIPIENT_FILE="${recipient_file}" \
@@ -240,7 +243,9 @@ proxy; black-box zsh tests exercise wrapper behavior and rendered Compose config
   Define one `devcontainer` service. Configure `build.context: .`, `build.ssh: [default]`, both
   external file-backed build secrets, image `pde-devcontainer:local`, user `1000:1000`,
   `group_add: ["0"]`, interactive zsh defaults, and Docker Desktop's runtime socket bind mount.
-  Require both secret-file variables through Compose's `${VARIABLE:?message}` syntax.
+  Default absent secret-file variables to `/dev/null` so runtime commands need no build-only
+  environment. The wrapper supplies real files during builds, and the Dockerfile's required,
+  nonempty secret use makes direct builds without them fail closed.
 
 - [ ] **Step 4: Run Compose test and verify GREEN**
 
