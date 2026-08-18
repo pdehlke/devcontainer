@@ -56,6 +56,36 @@ ssh-add -L >/dev/null
 git ls-remote git@github.com:pdehlke/dotfiles-private.git HEAD >/dev/null
 ```
 
+## Launch from another repo
+
+`scripts/claude-container` launches this image from any project directory, with that project and
+your host credentials mounted in. Install it once:
+
+```zsh
+make install
+```
+
+This hardlinks `claude-container`, `codex-container`, and `gemini-container` into `~/.local/bin`
+(already on `pde`'s `PATH`); all three share the same script and pick their CLI from the name
+they were invoked as.
+
+```zsh
+cd ~/src/some-other-repo
+claude-container                # launch Claude Code
+codex-container                 # launch Codex CLI (--yolo added automatically)
+gemini-container                # launch Gemini CLI (--yolo added automatically)
+claude-container --model opus   # flags pass straight through
+codex-container bash            # run an arbitrary command instead of the CLI
+claude-container --container-help
+```
+
+Unlike `docker compose run`, this launcher mounts the current directory, `~/.gitconfig`, and
+per-tool config directories (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/gcloud`,
+`~/.config/gh`, `~/.aws`) read-write where noted, on top of the same 1Password SSH-agent
+forwarding `compose.yaml` uses. See
+[the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md) for the full
+mount table and the reasoning behind the Docker-socket and credential-mount decisions.
+
 ## Troubleshooting
 
 - `Docker daemon is unavailable`: make `docker info` succeed. Stop any competing macOS

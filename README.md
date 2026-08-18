@@ -25,8 +25,8 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
 
 - [docs/agents/building.md](docs/agents/building.md)
 
-  Host prerequisites, secure build procedure, runtime command, and troubleshooting for the
-  dotfiles-backed development image.
+  Host prerequisites, secure build procedure, runtime command, launching the image from another
+  repo, and troubleshooting for the dotfiles-backed development image.
 
 - [docs/agents/domain.md](docs/agents/domain.md)
 
@@ -54,3 +54,13 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
 
   Test-first implementation tasks for the build wrapper, Compose contract, dotfiles image, and
   integrated verification.
+
+- [Container launcher design](docs/superpowers/specs/2026-08-18-container-launcher-design.md)
+
+  Adapting a third-party launcher script to this repo's image, account, and credential model:
+  SSH-agent forwarding, Docker-socket and Claude-auth mount decisions, and what wasn't carried
+  over from upstream.
+
+- [Container launcher implementation plan](docs/superpowers/plans/2026-08-18-container-launcher.md)
+
+  Test-first tasks for the launcher script, its Makefile install target, and documentation.
