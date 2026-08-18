@@ -33,6 +33,14 @@ function TRAPEXIT() {
   return "${exit_code}"
 }
 
+# ERR_EXIT can bypass TRAPEXIT when a command fails inside a zsh function.
+function TRAPZERR() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
 function test_missing_identity_reference() {
   local stdout_file="${TEST_ROOT}/missing-reference.stdout"
   local stderr_file="${TEST_ROOT}/missing-reference.stderr"
@@ -112,12 +120,13 @@ function test_term_signal_cleans_secret_files() {
   local signal_root="${TEST_ROOT}/signal/devcontainer-build.signal"
   local exit_code=0
 
-  mkdir -p -m 0700 "${signal_root}"
+  mkdir -p "${signal_root}"
+  chmod 0700 "${signal_root:h}" "${signal_root}"
   print -r -- 'temporary secret' >"${signal_root}/secret"
 
   if (
     source "${REPO_ROOT}/build.zsh"
-    BUILD_SCRATCH_DIR="${signal_root}"
+    typeset -g BUILD_SCRATCH_DIR="${signal_root}"
     TRAPTERM 15
   ); then
     exit_code=0
@@ -131,10 +140,12 @@ function test_term_signal_cleans_secret_files() {
 
 function main() {
   local REPLY
+  local test_root
 
-  TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-build.XXXXXXXX")
+  test_root=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-build.XXXXXXXX")
+  typeset -g TEST_ROOT="${test_root}"
   chmod 0700 "${TEST_ROOT}"
-  TEST_AGENT_SOCKET="${TEST_ROOT}/agent.sock"
+  typeset -g TEST_AGENT_SOCKET="${TEST_ROOT}/agent.sock"
 
   zmodload zsh/net/socket
   zsocket -l "${TEST_AGENT_SOCKET}"

@@ -56,10 +56,12 @@ function _preflight() {
 
 function _create_scratch_directory() {
   local temporary_root="${TMPDIR:-/tmp}"
+  local scratch_directory
 
   [[ -d "${temporary_root}" ]] || _die "temporary directory root is unavailable"
-  BUILD_SCRATCH_DIR=$(mktemp -d \
+  scratch_directory=$(mktemp -d \
     "${temporary_root%/}/${BUILD_SCRATCH_PREFIX}XXXXXXXX")
+  typeset -g BUILD_SCRATCH_DIR="${scratch_directory}"
   chmod 0700 "${BUILD_SCRATCH_DIR}"
 }
 
@@ -125,7 +127,7 @@ function _cleanup() {
   [[ "${BUILD_SCRATCH_DIR:t}" == ${BUILD_SCRATCH_PREFIX}* ]] || \
     _die "refusing to remove an unexpected scratch directory"
   command rm -rf -- "${BUILD_SCRATCH_DIR}"
-  BUILD_SCRATCH_DIR=""
+  typeset -g BUILD_SCRATCH_DIR=""
 }
 
 # Preserve command failure while removing temporary secret files on every exit.

@@ -82,7 +82,10 @@ function test_rendered_compose_contract() {
 }
 
 function main() {
-  TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-compose.XXXXXXXX")
+  local test_root
+
+  test_root=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-compose.XXXXXXXX")
+  typeset -g TEST_ROOT="${test_root}"
   chmod 0700 "${TEST_ROOT}"
 
   test_rendered_compose_contract
