@@ -37,3 +37,10 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
 
   Maps the five canonical triage roles used by the `triage` skill to this repo's actual label
   strings. Currently the defaults, unchanged.
+
+### Designs
+
+- [docs/superpowers/specs/2026-08-18-devcontainer-dotfiles-design.md](docs/superpowers/specs/2026-08-18-devcontainer-dotfiles-design.md)
+
+  Build-time public and private dotfiles provisioning, scoped secret injection, and 1Password
+  SSH-agent forwarding for image builds and running containers.
