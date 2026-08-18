@@ -1,0 +1,9 @@
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+
+
+[sandbox_workspace_write]
+writable_roots = [
+	"/Users/pde/src/github.com/pdehlke/devcontainer/.git",
+	"/Users/pde/src/github.com/pdehlke/devcontainer/.codex",
+]
