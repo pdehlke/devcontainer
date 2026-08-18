@@ -38,6 +38,24 @@ compose)
     ;;
   esac
   ;;
+image)
+  case "${2:-}" in
+  inspect)
+    exit "${TEST_DOCKER_IMAGE_INSPECT_STATUS:-0}"
+    ;;
+  *)
+    exit 64
+    ;;
+  esac
+  ;;
+run)
+  shift
+  : >"${TEST_DOCKER_RUN_ARGS_FILE:?run args file is required}"
+  for arg in "$@"; do
+    printf '%s\n' "${arg}" >>"${TEST_DOCKER_RUN_ARGS_FILE}"
+  done
+  exit "${TEST_DOCKER_RUN_STATUS:-0}"
+  ;;
 *)
   exit 64
   ;;
