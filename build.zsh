@@ -2,6 +2,9 @@
 # build.zsh -- Build and verify the dotfiles-backed development image.
 # Author: Pete Ehlke
 # Date: 2026-08-18
+# Usage: build.zsh [--full]
+#   --full  Pass --no-cache --pull to `docker compose build`, discarding the layer cache and
+#           re-pulling the base image. Default is a plain cached build.
 # Required environment: SSH_AUTH_SOCK.
 # Exit status: zero on a verified build; nonzero on invalid input or failed verification.
 
@@ -166,6 +169,19 @@ function TRAPTERM() {
 function main() {
   local identity_file
   local recipient_file
+  local -a build_flags=()
+  local arg
+
+  for arg in "${@}"; do
+    case "${arg}" in
+      --full)
+        build_flags=(--no-cache --pull)
+        ;;
+      *)
+        _die "unrecognized option: ${arg} (build.zsh accepts only --full)"
+        ;;
+    esac
+  done
 
   _require_secret_reference DOTFILES_AGE_IDENTITY_REF
   _require_secret_reference DOTFILES_AGE_RECIPIENT_REF
@@ -180,7 +196,7 @@ function main() {
   export DOTFILES_AGE_IDENTITY_FILE="${identity_file}"
   export DOTFILES_AGE_RECIPIENT_FILE="${recipient_file}"
 
-  docker compose build
+  docker compose build "${(@)build_flags}"
   _verify_runtime_agent
   _verify_private_git_authentication
 }

@@ -103,6 +103,80 @@ function test_mismatched_agent_keys_fail_closed() {
   [[ -z "${remaining_files}" ]] || fail "mismatch failure leaves secret files"
 }
 
+function test_default_build_omits_no_cache_pull() {
+  local case_tmp="${TEST_ROOT}/default-flags-tmp"
+  local build_marker="${TEST_ROOT}/default-flags-build"
+  local build_args="${TEST_ROOT}/default-flags-build-args"
+  local git_probe_marker="${TEST_ROOT}/default-flags-git-probe"
+
+  mkdir -m 0700 "${case_tmp}"
+
+  if TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
+    TEST_DOCKER_BUILD_MARKER="${build_marker}" \
+    TEST_DOCKER_BUILD_ARGS_FILE="${build_args}" \
+    TEST_GIT_PROBE_MARKER="${git_probe_marker}" \
+    TEST_HOST_AGENT_KEYS='ssh-ed25519 AAAATEST build-test' \
+    "${REPO_ROOT}/build.zsh" >/dev/null 2>/dev/null; then
+    :
+  else
+    fail "a default build fails"
+  fi
+
+  if grep -Fq -- '--no-cache' "${build_args}"; then
+    fail "a default build passes --no-cache"
+  fi
+  if grep -Fq -- '--pull' "${build_args}"; then
+    fail "a default build passes --pull"
+  fi
+}
+
+function test_full_flag_adds_no_cache_pull() {
+  local case_tmp="${TEST_ROOT}/full-flag-tmp"
+  local build_marker="${TEST_ROOT}/full-flag-build"
+  local build_args="${TEST_ROOT}/full-flag-build-args"
+  local git_probe_marker="${TEST_ROOT}/full-flag-git-probe"
+
+  mkdir -m 0700 "${case_tmp}"
+
+  if TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
+    TEST_DOCKER_BUILD_MARKER="${build_marker}" \
+    TEST_DOCKER_BUILD_ARGS_FILE="${build_args}" \
+    TEST_GIT_PROBE_MARKER="${git_probe_marker}" \
+    TEST_HOST_AGENT_KEYS='ssh-ed25519 AAAATEST build-test' \
+    "${REPO_ROOT}/build.zsh" --full >/dev/null 2>/dev/null; then
+    :
+  else
+    fail "a --full build fails"
+  fi
+
+  grep -Fq -- '--no-cache' "${build_args}" || fail "--full omits --no-cache"
+  grep -Fq -- '--pull' "${build_args}" || fail "--full omits --pull"
+}
+
+function test_unrecognized_flag_fails_closed() {
+  local case_tmp="${TEST_ROOT}/bad-flag-tmp"
+  local build_marker="${TEST_ROOT}/bad-flag-build"
+  local stderr_file="${TEST_ROOT}/bad-flag.stderr"
+  local exit_code=0
+
+  mkdir -m 0700 "${case_tmp}"
+
+  if TMPDIR="${case_tmp}" PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    SSH_AUTH_SOCK="${TEST_AGENT_SOCKET}" \
+    TEST_DOCKER_BUILD_MARKER="${build_marker}" \
+    "${REPO_ROOT}/build.zsh" --bogus >/dev/null 2>"${stderr_file}"; then
+    exit_code=0
+  else
+    exit_code="${?}"
+  fi
+
+  (( exit_code != 0 )) || fail "an unrecognized option succeeds"
+  grep -Fq -- '--bogus' "${stderr_file}" || fail "the error omits the unrecognized option"
+  [[ ! -f "${build_marker}" ]] || fail "an unrecognized option still reaches Compose build"
+}
+
 function test_term_signal_cleans_secret_files() {
   local signal_root="${TEST_ROOT}/signal/devcontainer-build.signal"
   local exit_code=0
@@ -141,6 +215,12 @@ function main() {
   print -r -- "PASS: default references build without input"
   test_mismatched_agent_keys_fail_closed
   print -r -- "PASS: mismatched agent identities fail closed"
+  test_default_build_omits_no_cache_pull
+  print -r -- "PASS: a default build omits --no-cache and --pull"
+  test_full_flag_adds_no_cache_pull
+  print -r -- "PASS: --full adds --no-cache and --pull"
+  test_unrecognized_flag_fails_closed
+  print -r -- "PASS: an unrecognized option fails closed"
   test_term_signal_cleans_secret_files
   print -r -- "PASS: TERM signal cleans secret files"
 }

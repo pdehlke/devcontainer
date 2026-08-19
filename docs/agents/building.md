@@ -31,6 +31,17 @@ agent to BuildKit, and runs the Compose build. It then verifies that a running c
 same agent identities and can authenticate to the private Git repository using only that agent.
 Temporary secret files are removed on success, failure, or interruption.
 
+By default the build uses Docker's layer cache and whatever base image is already local. Pass
+`--full` to discard the cache and re-pull the base image instead:
+
+```zsh
+./build.zsh --full
+```
+
+Slower, but the right choice when the base image may have moved upstream or a cached layer is
+suspected of being stale. Any other flag fails closed with an error naming it, before any secret
+is resolved.
+
 Do not replace the wrapper with `docker compose build`. The direct command lacks the secret
 staging, prerequisite checks, cleanup controls, and post-build SSH-agent verification.
 

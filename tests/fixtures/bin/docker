@@ -17,6 +17,11 @@ compose)
     [ -s "${recipient_file}" ]
     [ "$(sed -n '1p' "${identity_file}")" = 'AGE-SECRET-KEY-TEST' ]
     [ "$(sed -n '1p' "${recipient_file}")" = 'age1testrecipient' ]
+    shift 2
+    : >"${TEST_DOCKER_BUILD_ARGS_FILE:-/dev/null}"
+    for arg in "$@"; do
+      printf '%s\n' "${arg}" >>"${TEST_DOCKER_BUILD_ARGS_FILE:-/dev/null}"
+    done
     : >"${TEST_DOCKER_BUILD_MARKER:?build marker is required}"
     ;;
   run)
