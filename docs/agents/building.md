@@ -86,8 +86,8 @@ same 1Password SSH-agent forwarding `compose.yaml` uses. See
 [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md) for the full
 mount table and the reasoning behind the credential-mount decisions.
 
-A project that cross-references a sibling checkout — a fork, a paired repo, docs with hardcoded
-absolute paths into it — can have that checkout mounted alongside the current directory too, via
+A project that cross-references a sibling checkout (a fork, a paired repo, docs with hardcoded
+absolute paths into it) can have that checkout mounted alongside the current directory too, via
 `CONTAINER_EXTRA_MOUNTS` (colon-separated absolute host paths, mounted read-write at their own
 paths, same as the current directory):
 
