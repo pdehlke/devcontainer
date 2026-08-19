@@ -86,6 +86,38 @@ same 1Password SSH-agent forwarding `compose.yaml` uses. See
 [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md) for the full
 mount table and the reasoning behind the credential-mount decisions.
 
+### Sign Claude Code in to the container
+
+Mounting `~/.claude` does not carry a login into the container, and no other mount can. Claude
+Code stores credentials in the macOS Keychain on the host but reads them from
+`~/.claude/.credentials.json` on Linux, [per the credential management
+documentation](https://code.claude.com/docs/en/authentication). On this host that file exists but
+holds an empty `accessToken` and `refreshToken`, so the container receives a token-less stub. The
+account identity in `~/.claude.json` is complete, which is why a container session names the right
+account and still reports `Failed to authenticate: OAuth session expired and could not be
+refreshed`.
+
+The container needs a credential of its own. Mint one on the host and store it in the Keychain,
+where the launcher looks for it:
+
+```zsh
+claude setup-token
+security add-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -a "$USER" -w
+```
+
+`claude setup-token` prints a one-year token after a browser approval and saves it nowhere; the
+second command reads it from stdin so it never lands in shell history. The token requires a Pro,
+Max, Team, or Enterprise plan, and authenticates model requests only, so container sessions cannot
+use Remote Control or claude.ai connectors. Both limits are documented under [generate a
+long-lived token](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token).
+
+Setting `CLAUDE_CODE_OAUTH_TOKEN` in the environment overrides the Keychain lookup, which is
+useful for a one-off. Do not export it from `~/.zshrc`: Claude Code deletes the host's
+`Claude Code-credentials` Keychain entry on exit whenever that variable is set
+([anthropics/claude-code#37512](https://github.com/anthropics/claude-code/issues/37512)), so a
+profile-wide export logs the host out. Reading it from the Keychain at launch keeps the variable
+scoped to the container.
+
 ## Troubleshooting
 
 - `Docker daemon is unavailable`: make `docker info` succeed. Stop any competing macOS
@@ -99,3 +131,12 @@ mount table and the reasoning behind the credential-mount decisions.
   the one-shot build verification.
 - `runtime SSH agent cannot authenticate the private dotfiles checkout`: approve the 1Password
   SSH request and confirm the exposed key can access the private repository.
+- `Failed to authenticate: OAuth session expired and could not be refreshed` in a container
+  session: the container has no Claude Code credential of its own. The host's login is in the
+  macOS Keychain, which cannot be mounted, so `~/.claude` carries an empty-token stub. Follow
+  [Sign Claude Code in to the container](#sign-claude-code-in-to-the-container). The launcher
+  prints the same two commands when it starts Claude Code without a token.
+- `SessionEnd hook ... No such file or directory` in a container session: the mounted
+  `~/.claude/settings.json` wires hooks to host-only paths, and those paths do not exist in the
+  container. The message is harmless. This is the hooks caveat recorded in
+  [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md).

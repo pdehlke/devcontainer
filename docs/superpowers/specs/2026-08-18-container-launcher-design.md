@@ -44,7 +44,8 @@ over, not just fixing paths.
 | --- | --- | --- |
 | Git/SSH auth | Forward `SSH_AUTH_SOCK` to the 1Password proxy socket, same as `compose.yaml`. Keep the `~/.gitconfig` mount (read-only) alongside it. | Agent forwarding supplies the key; `.gitconfig` supplies identity/signing prefs for whatever repo gets mounted. Neither alone is sufficient. |
 | Docker socket | Dropped (was kept, mounted straight, in the initial design). | Originally decided to keep it, accepting the broadened blast radius, since there's no proxy sidecar in this repo to remap to. The final whole-branch review found no consumer for it in this image (no Docker CLI installed, no `devcontainer.json`/feature, no mise pin) and removed it as unnecessary blast radius; see "What's not being adopted" above. Revisit if a real use case for a Docker CLI inside the container shows up. |
-| Claude Code auth/settings | Mount the full `~/.claude` and `~/.claude.json`, read-write — matches upstream as-is. | Convenience wins here; settings/plugins/session history all carry over. Supersedes container-setup.md's more cautious "credentials-file-only, read-only" option for this launcher specifically. Known accepted consequence: container-setup.md separately warns that hooks (`Notification`, `PostToolUse`, `Stop`, `SessionStart`, `SessionEnd`) wired in a host `settings.json` assume a host terminal-multiplexer session and may fail or silently no-op inside this headless container. That's expected here, not something this launcher works around. |
+| Claude Code settings | Mount the full `~/.claude` and `~/.claude.json`, read-write — matches upstream as-is. | Convenience wins here; settings/plugins/session history all carry over. Supersedes container-setup.md's more cautious "credentials-file-only, read-only" option for this launcher specifically. Known accepted consequence: container-setup.md separately warns that hooks (`Notification`, `PostToolUse`, `Stop`, `SessionStart`, `SessionEnd`) wired in a host `settings.json` assume a host terminal-multiplexer session and may fail or silently no-op inside this headless container. That's expected here, not something this launcher works around. |
+| Claude Code auth | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, read from the environment or, failing that, the macOS Keychain service of the same name, and passed to `docker run` as a bare `-e`. | These mounts were originally assumed to carry the login too. They cannot. Claude Code stores credentials in the macOS Keychain on the host and reads them from `~/.claude/.credentials.json` on Linux, so the mounted `~/.claude` delivers a stub with empty `accessToken`/`refreshToken` while `~/.claude.json` delivers a complete `oauthAccount`, so the container names the right account and reports `OAuth session expired and could not be refreshed`. See "Why the container needs its own credential" below. |
 | Claude Code YOLO parity | **Deferred, not added.** codex/gemini keep their existing auto `--yolo` injection; `claude-container` launches plain `claude` (normal permission prompts). | Explicitly undecided — pde may switch this once there's real usage to judge by. Noted here so it isn't silently forgotten. |
 | `gh` config | Keep `~/.config/gh` mounted read-only, even though `container-setup.md` already documents that gh's host auth is keyring-backed and doesn't travel into a container. | Harmless if inert; `CLAUDE_GITHUB_TOKEN` → `GITHUB_TOKEN` passthrough (already in the script) is the real fallback path. |
 | AWS / GCP env passthrough | Carried over unchanged (`AWS_PROFILE`, `AWS_REGION`, `CLAUDE_CODE_USE_BEDROCK`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `OPENAI_API_KEY` with macOS Keychain fallback). | No conflict with anything in this repo; inert if unset. |
@@ -61,7 +62,7 @@ repo's Dockerfile actually creates.
 | `~/.gitconfig` | `/home/pde/.gitconfig` | ro | |
 | `~/.aws` | `/home/pde/.aws` | ro | |
 | `~/.config/gh` | `/home/pde/.config/gh` | ro | Likely inert; kept per decision above. |
-| `~/.claude` | `/home/pde/.claude` | rw | claude flavor only |
+| `~/.claude` | `/home/pde/.claude` | rw | claude flavor only; carries settings, skills, and plugins, but not the login |
 | `~/.claude.json` | `/home/pde/.claude.json` | rw | claude flavor only |
 | `~/.codex` | `/home/pde/.codex` | rw | codex flavor only |
 | `~/.gemini` | `/home/pde/.gemini` | rw | gemini flavor only |
@@ -74,6 +75,40 @@ or plain `claude` for the default flavor, matching the `--container-help` text's
 `claude-container` launches Claude Code interactively. The final whole-branch review found the
 claude flavor missing this injection (it fell through to the image's own login-shell `CMD`
 instead) and added it for parity with codex/gemini.
+
+## Why the container needs its own credential
+
+The first version of this launcher assumed that mounting `~/.claude` and `~/.claude.json` carried
+the host's Claude Code login into the container. It does not, and no mount can. Claude Code
+[stores credentials in the macOS Keychain on macOS and in `~/.claude/.credentials.json` on
+Linux](https://code.claude.com/docs/en/authentication). The host therefore keeps a
+`.credentials.json` holding only non-secret metadata (`scopes`, `subscriptionType`,
+`rateLimitTier`) with `accessToken` and `refreshToken` as empty strings. Mounted into a Linux
+container, that stub is the whole credential store, and the Keychain that holds the real tokens is
+not a file that Docker can bind.
+
+Verified against the built image: with the stub mounted, `claude -p` fails with `Failed to
+authenticate: OAuth session expired and could not be refreshed`; with no credentials file at all it
+reports the cleaner `Not logged in · Please run /login`; with `CLAUDE_CODE_OAUTH_TOKEN` set it
+bypasses the stub and reaches the API.
+
+Three options were considered.
+
+| Option | Rejected because |
+| --- | --- |
+| Copy the host's Keychain tokens into a per-launch credentials file | The container and host would share one refresh token. Whichever refreshes first rotates it and silently logs the other out, which is the failure mode behind [#24317](https://github.com/anthropics/claude-code/issues/24317) and [#37512](https://github.com/anthropics/claude-code/issues/37512). Trading a container that is logged out for a host that is logged out is not a fix. |
+| Give the container its own persistent `/login`, in a container-private credentials file | Correct in principle and needs no token handling in the launcher, but the isolation cannot be built cheaply. A single-file bind mount over `.credentials.json` breaks the write: `rename(2)` onto a bind-mounted file fails with `EBUSY`, confirmed in the image, so any atomic credential write is lost. Isolating a whole directory instead means `CLAUDE_CONFIG_DIR`, which also relocates `.claude.json` and gives up the host settings this launcher exists to share. |
+| **`CLAUDE_CODE_OAUTH_TOKEN` (chosen)** | Outranks the on-disk credential in [authentication precedence](https://code.claude.com/docs/en/authentication#authentication-precedence), so the unusable stub needs no replacing and every existing mount keeps working unchanged. It is the mechanism the documentation names for environments without a browser login. |
+
+The token is read from the Keychain rather than the shell profile because Claude Code deletes the
+host's `Claude Code-credentials` Keychain entry on exit whenever `CLAUDE_CODE_OAUTH_TOKEN` is set
+([#37512](https://github.com/anthropics/claude-code/issues/37512)). A profile-wide export would log
+the host out; resolving the token inside the launcher scopes it to the container.
+
+Accepted costs: a one-time browser approval to mint the token, a yearly renewal, and container
+sessions that cannot use Remote Control or claude.ai connectors, all three
+[documented](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
+properties of a `setup-token` credential.
 
 ## Layout and install
 
@@ -94,6 +129,12 @@ rather than a manual check: `tests/test-claude-container` extends the shared `do
 above, the `SSH_AUTH_SOCK` value, flavor-specific mounts and `--yolo` injection for
 codex/gemini, no skip-permissions injection for claude, `--container-help` working without
 Docker, and the missing-image error carrying a build hint.
+
+Claude authentication is covered the same way, against a `security` stub that stands in for the
+Keychain so the suite never reads the developer's real one: the token reaches docker as a bare
+`-e` from either the environment or the Keychain, its value never appears on the argv, a missing
+token prints the setup commands and forwards nothing, and an ambient `CLAUDE_CODE_OAUTH_TOKEN`
+does not follow a codex or gemini launch into the container.
 
 That covers everything the script *constructs*. It doesn't cover whether the forwarded agent
 actually authenticates once a real container is running — confirming that (`gh --version`, `git

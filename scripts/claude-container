@@ -27,6 +27,8 @@ Launch ${SELF%%-container} in the devcontainer image with your current directory
 Environment variables (passed through when set):
   AWS_PROFILE               AWS profile to use
   AWS_REGION                AWS region for API calls
+  CLAUDE_CODE_OAUTH_TOKEN   Claude Code container login from \`claude setup-token\`
+                            (falls back to the macOS Keychain service of the same name)
   CLAUDE_CODE_USE_BEDROCK   Set to 1 for AWS Bedrock
   CLAUDE_GITHUB_TOKEN       GitHub personal access token for gh CLI
   GOOGLE_CLOUD_PROJECT      Google Cloud project ID for Gemini CLI Vertex usage
@@ -69,6 +71,41 @@ elif [[ "$SELF" == "gemini-container" ]]; then
 else
   if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
     set -- claude "$@"
+  fi
+
+  # Claude Code stores its OAuth credentials in the macOS Keychain on this host, but reads them
+  # from ~/.claude/.credentials.json on Linux. The mounted ~/.claude therefore reaches the
+  # container carrying a stub whose accessToken and refreshToken are empty strings, so a container
+  # session knows the account -- that comes from ~/.claude.json's oauthAccount, which is complete
+  # -- while having no usable token, and fails with "OAuth session expired and could not be
+  # refreshed". The Keychain is not a file, so no additional mount can close this gap: the
+  # container needs a credential of its own. CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`,
+  # outranks the on-disk credential in Claude Code's authentication precedence, so it bypasses the
+  # unusable stub rather than having to replace it.
+  #
+  # Reading it from the Keychain rather than the shell profile is deliberate. Claude Code deletes
+  # the "Claude Code-credentials" Keychain entry on exit when CLAUDE_CODE_OAUTH_TOKEN is set
+  # (anthropics/claude-code#37512), so exporting this variable in ~/.zshrc would log the *host*
+  # out. Set here, it reaches only the container. FORWARD_CLAUDE_OAUTH_TOKEN, rather than the
+  # variable's own presence, gates the -e below: this credential authenticates Claude Code alone,
+  # and codex and gemini launches must not receive it just because the caller's shell has it set.
+  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -w 2>/dev/null)" || true
+  fi
+  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+    export CLAUDE_CODE_OAUTH_TOKEN
+    FORWARD_CLAUDE_OAUTH_TOKEN=1
+  elif [ "${1:-}" = "claude" ]; then
+    cat >&2 <<'NOTOKEN'
+Warning: no CLAUDE_CODE_OAUTH_TOKEN found; Claude Code will start logged out.
+  The host's login lives in the macOS Keychain, which cannot be mounted into a Linux
+  container, so the mounted ~/.claude carries an empty-token stub. Mint a container
+  credential once (it lasts a year), then store it for every future launch:
+    claude setup-token
+    security add-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -a "$USER" -w
+  Do not export CLAUDE_CODE_OAUTH_TOKEN in your shell profile: Claude Code deletes the
+  host's Keychain login on exit when that variable is set.
+NOTOKEN
   fi
 fi
 
@@ -129,6 +166,7 @@ exec docker run --rm "${TTY_FLAGS[@]}" \
   -e "SSH_AUTH_SOCK=/home/pde/.1password/agent.sock" \
   ${AWS_PROFILE:+-e "AWS_PROFILE=${AWS_PROFILE}"} \
   ${AWS_REGION:+-e "AWS_REGION=${AWS_REGION}"} \
+  ${FORWARD_CLAUDE_OAUTH_TOKEN:+-e CLAUDE_CODE_OAUTH_TOKEN} \
   ${CLAUDE_CODE_USE_BEDROCK:+-e "CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK}"} \
   ${FORWARD_GITHUB_TOKEN:+-e GITHUB_TOKEN} \
   ${GOOGLE_CLOUD_PROJECT:+-e "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"} \

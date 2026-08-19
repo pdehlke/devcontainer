@@ -52,6 +52,7 @@ function test_default_flavor_mounts_and_forwards_ssh_agent() {
   ( cd "${case_home}" && env -i \
     PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
     HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
     TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
     "${BIN_ROOT}/claude-container" )
 
@@ -97,6 +98,7 @@ function test_claude_flavor_forwards_flags_to_claude_command() {
   ( cd "${case_home}" && env -i \
     PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
     HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
     TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
     "${BIN_ROOT}/claude-container" --model opus )
 
@@ -107,6 +109,95 @@ function test_claude_flavor_forwards_flags_to_claude_command() {
     fail "claude --model opus is not injected in order immediately after the image name"
   if grep --fixed-strings --quiet -- 'dangerously-skip-permissions' "${run_args}"; then
     fail "claude flavor auto-injects skip-permissions, which was explicitly deferred"
+  fi
+}
+
+# The host keeps its Claude Code login in the macOS Keychain, which cannot be mounted, so the
+# container is authenticated by CLAUDE_CODE_OAUTH_TOKEN instead. Like every other secret here, it
+# has to reach docker without appearing on the argv that ps exposes.
+function test_claude_oauth_token_from_env_stays_off_argv() {
+  local case_home="${TEST_ROOT}/oauth-env-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    CLAUDE_CODE_OAUTH_TOKEN="test-oauth-env-sentinel" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'CLAUDE_CODE_OAUTH_TOKEN' "${run_args}" || \
+    fail "CLAUDE_CODE_OAUTH_TOKEN is not passed to docker as a bare -e flag"
+  if grep --fixed-strings --quiet -- 'test-oauth-env-sentinel' "${run_args}"; then
+    fail "the Claude OAuth token value leaks into the docker run argv"
+  fi
+}
+
+function test_claude_oauth_token_falls_back_to_keychain() {
+  local case_home="${TEST_ROOT}/oauth-keychain-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-keychain-sentinel" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'CLAUDE_CODE_OAUTH_TOKEN' "${run_args}" || \
+    fail "the Keychain-stored Claude OAuth token is not forwarded to docker"
+  if grep --fixed-strings --quiet -- 'test-oauth-keychain-sentinel' "${run_args}"; then
+    fail "the Keychain-stored Claude OAuth token value leaks into the docker run argv"
+  fi
+}
+
+# Without a token the container starts logged out. That is recoverable, but only if the launcher
+# says how, because Claude Code's own message ("OAuth session expired") points at the wrong cause.
+function test_missing_claude_oauth_token_warns_with_setup_hint() {
+  local case_home="${TEST_ROOT}/oauth-missing-home"
+  local run_args="${case_home}/run-args"
+  local stderr_file="${case_home}/stderr"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" 2>"${stderr_file}" )
+
+  grep --fixed-strings --quiet -- 'claude setup-token' "${stderr_file}" || \
+    fail "the missing-token warning omits the command that mints a container credential"
+  grep --fixed-strings --quiet -- 'add-generic-password' "${stderr_file}" || \
+    fail "the missing-token warning omits how to store the credential for reuse"
+  if grep --fixed-strings --line-regexp --quiet -- 'CLAUDE_CODE_OAUTH_TOKEN' "${run_args}"; then
+    fail "an empty CLAUDE_CODE_OAUTH_TOKEN is forwarded to docker"
+  fi
+}
+
+# The token authenticates Claude Code only; the other two CLIs have their own credentials.
+function test_claude_oauth_token_is_not_forwarded_to_other_flavors() {
+  local case_home="${TEST_ROOT}/oauth-other-flavor-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}/.gemini"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    CLAUDE_CODE_OAUTH_TOKEN="test-oauth-cross-flavor-sentinel" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/gemini-container" )
+
+  if grep --fixed-strings --line-regexp --quiet -- 'CLAUDE_CODE_OAUTH_TOKEN' "${run_args}"; then
+    fail "the Claude OAuth token is forwarded to the gemini flavor"
+  fi
+  if grep --fixed-strings --quiet -- 'test-oauth-cross-flavor-sentinel' "${run_args}"; then
+    fail "the Claude OAuth token value reaches a non-claude flavor's docker run argv"
   fi
 }
 
@@ -266,6 +357,14 @@ function main() {
   print -r -- "PASS: default flavor mounts claude config and forwards the SSH agent"
   test_claude_flavor_forwards_flags_to_claude_command
   print -r -- "PASS: claude flavor forwards flags to an injected claude command"
+  test_claude_oauth_token_from_env_stays_off_argv
+  print -r -- "PASS: CLAUDE_CODE_OAUTH_TOKEN reaches docker without leaking onto its argv"
+  test_claude_oauth_token_falls_back_to_keychain
+  print -r -- "PASS: the Claude OAuth token falls back to the macOS Keychain"
+  test_missing_claude_oauth_token_warns_with_setup_hint
+  print -r -- "PASS: a missing Claude OAuth token warns with the setup commands"
+  test_claude_oauth_token_is_not_forwarded_to_other_flavors
+  print -r -- "PASS: the Claude OAuth token is not forwarded to other flavors"
   test_codex_flavor_injects_yolo_and_mounts_codex_config
   print -r -- "PASS: codex flavor injects --yolo and mounts codex config"
   test_gemini_flavor_injects_yolo_and_mounts_gemini_config

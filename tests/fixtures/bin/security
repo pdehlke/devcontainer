@@ -1,0 +1,31 @@
+#!/bin/sh
+# macOS Keychain stub. Implements only `find-generic-password -s SERVICE -w`, the one form
+# scripts/claude-container uses, so tests never read the developer's real Keychain. A service
+# holds a password when TEST_KEYCHAIN_<SERVICE> is set; otherwise the stub exits 44, the status
+# the real tool returns for an item that isn't there.
+set -eu
+
+[ "${1:-}" = 'find-generic-password' ] || exit 64
+shift
+
+service=''
+while [ "$#" -gt 0 ]; do
+  case "${1}" in
+  -s)
+    service="${2:?service name is required}"
+    shift 2
+    ;;
+  *)
+    shift
+    ;;
+  esac
+done
+
+case "${service}" in
+OPENAI_API_KEY) value="${TEST_KEYCHAIN_OPENAI_API_KEY:-}" ;;
+CLAUDE_CODE_OAUTH_TOKEN) value="${TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN:-}" ;;
+*) exit 64 ;;
+esac
+
+[ -n "${value}" ] || exit 44
+printf '%s\n' "${value}"
