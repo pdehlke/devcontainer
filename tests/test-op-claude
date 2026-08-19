@@ -1,0 +1,187 @@
+#!/usr/bin/env zsh
+# test-op-claude -- Exercise scripts/op-claude through controlled command boundaries.
+# Author: Pete Ehlke
+# Date: 2026-08-19
+
+setopt ERR_EXIT NO_UNSET PIPE_FAIL WARN_CREATE_GLOBAL
+
+readonly REPO_ROOT="${0:A:h:h}"
+readonly ORIGINAL_PATH="${PATH}"
+readonly STUB_PATH="${REPO_ROOT}/tests/fixtures/bin"
+readonly LAUNCHER="${REPO_ROOT}/scripts/op-claude"
+typeset -g TEST_ROOT=""
+typeset -g BIN_ROOT=""
+
+function fail() {
+  local message="${1}"
+
+  print -u2 -r -- "FAIL: ${message}"
+  return 1
+}
+
+# Remove only the restricted directory created by this test process.
+function _cleanup() {
+  if [[ -n "${TEST_ROOT}" && -d "${TEST_ROOT}" ]]; then
+    command rm -rf -- "${TEST_ROOT}"
+  fi
+}
+
+function TRAPEXIT() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+# ERR_EXIT can bypass TRAPEXIT when a command fails inside a zsh function.
+function TRAPZERR() {
+  local exit_code="${?}"
+
+  _cleanup
+  return "${exit_code}"
+}
+
+function test_default_flavor_wraps_claude_in_op_run() {
+  local case_home="${TEST_ROOT}/default-home"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    "${BIN_ROOT}/op-claude" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'claude' "${op_run_args}" || \
+    fail "bare invocation does not wrap claude in op run"
+}
+
+function test_claude_flavor_forwards_flags_in_order() {
+  local case_home="${TEST_ROOT}/claude-flags-home"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    "${BIN_ROOT}/op-claude" --model opus )
+
+  local args
+  args="$(<"${op_run_args}")"
+  [[ "${args}" == $'claude\n--model\nopus' ]] || \
+    fail "claude --model opus is not forwarded in order"
+}
+
+function test_codex_flavor_injects_codex_command() {
+  local case_home="${TEST_ROOT}/codex-home"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    "${BIN_ROOT}/op-codex" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'codex' "${op_run_args}" || \
+    fail "bare op-codex does not wrap codex in op run"
+}
+
+function test_gemini_flavor_injects_gemini_command() {
+  local case_home="${TEST_ROOT}/gemini-home"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    "${BIN_ROOT}/op-gemini" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'gemini' "${op_run_args}" || \
+    fail "bare op-gemini does not wrap gemini in op run"
+}
+
+function test_explicit_command_skips_flavor_injection() {
+  local case_home="${TEST_ROOT}/explicit-home"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    "${BIN_ROOT}/op-codex" bash )
+
+  grep --fixed-strings --line-regexp --quiet -- 'bash' "${op_run_args}" || \
+    fail "explicit command is not passed through"
+  if grep --fixed-strings --line-regexp --quiet -- 'codex' "${op_run_args}"; then
+    fail "codex is injected even with an explicit command"
+  fi
+}
+
+function test_missing_op_binary_errors() {
+  local case_home="${TEST_ROOT}/missing-op-home"
+  local stderr_file="${case_home}/stderr"
+  local exit_code=0
+
+  mkdir -p "${case_home}"
+  if env -i PATH="/usr/bin:/bin" HOME="${case_home}" \
+    "${BIN_ROOT}/op-claude" >/dev/null 2>"${stderr_file}"; then
+    exit_code=0
+  else
+    exit_code="${?}"
+  fi
+
+  (( exit_code != 0 )) || fail "op-claude succeeds with no op binary on PATH"
+  grep --fixed-strings --quiet -- 'op (1Password CLI) not found' "${stderr_file}" || \
+    fail "missing-op error omits a clear message"
+}
+
+function test_container_help_does_not_require_op() {
+  local case_home="${TEST_ROOT}/help-home"
+  local stdout_file="${case_home}/stdout"
+
+  mkdir -p "${case_home}"
+  env -i PATH="/usr/bin:/bin" HOME="${case_home}" \
+    "${BIN_ROOT}/op-claude" --container-help >"${stdout_file}"
+
+  grep --fixed-strings --quiet -- 'Usage:' "${stdout_file}" || fail "--container-help prints no usage"
+}
+
+function main() {
+  local test_root
+
+  test_root=$(mktemp -d "${TMPDIR:-/tmp}/devcontainer-test-op-claude.XXXXXXXX")
+  typeset -g TEST_ROOT="${test_root:A}"
+  chmod 0700 "${TEST_ROOT}"
+
+  typeset -g BIN_ROOT="${TEST_ROOT}/bin"
+  mkdir -p "${BIN_ROOT}"
+  ln -s "${LAUNCHER}" "${BIN_ROOT}/op-claude"
+  ln -s "${LAUNCHER}" "${BIN_ROOT}/op-codex"
+  ln -s "${LAUNCHER}" "${BIN_ROOT}/op-gemini"
+
+  test_default_flavor_wraps_claude_in_op_run
+  print -r -- "PASS: default flavor wraps claude in op run"
+  test_claude_flavor_forwards_flags_in_order
+  print -r -- "PASS: claude flavor forwards flags in order"
+  test_codex_flavor_injects_codex_command
+  print -r -- "PASS: codex flavor wraps codex in op run"
+  test_gemini_flavor_injects_gemini_command
+  print -r -- "PASS: gemini flavor wraps gemini in op run"
+  test_explicit_command_skips_flavor_injection
+  print -r -- "PASS: an explicit command skips flavor injection"
+  test_missing_op_binary_errors
+  print -r -- "PASS: a missing op binary fails with a clear message"
+  test_container_help_does_not_require_op
+  print -r -- "PASS: --container-help works without op"
+}
+
+main "${@}"

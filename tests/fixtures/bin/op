@@ -19,6 +19,27 @@ read)
     ;;
   esac
   ;;
+run)
+  [ "${TEST_OP_RUN_STATUS:-0}" -eq 0 ] || exit "${TEST_OP_RUN_STATUS}"
+  shift
+  # Skip op run's own flags (e.g. --no-masking), same as op run itself: everything up to and
+  # including the -- separator belongs to op run, not the wrapped command.
+  while [ $# -gt 0 ] && [ "${1}" != '--' ]; do
+    shift
+  done
+  [ "${1:-}" = '--' ] && shift
+  : >"${TEST_OP_RUN_ARGS_FILE:?run args file is required}"
+  for arg in "$@"; do
+    printf '%s\n' "${arg}" >>"${TEST_OP_RUN_ARGS_FILE}"
+  done
+  # TEST_OP_RUN_EXEC=1 continues the chain into the wrapped command (used when it's a real stub,
+  # e.g. docker); otherwise this just proves op run was invoked with the right argv and stops,
+  # since claude/codex/gemini have no fixture of their own.
+  if [ "${TEST_OP_RUN_EXEC:-0}" = "1" ]; then
+    exec "$@"
+  fi
+  exit 0
+  ;;
 *)
   exit 64
   ;;

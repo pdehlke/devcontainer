@@ -470,6 +470,81 @@ function test_extra_mounts_unset_adds_no_extra_volume() {
     fail "an empty CONTAINER_EXTRA_MOUNTS changes the -v flag count from the baseline of 2"
 }
 
+# An op://-valued environment variable is a project's own secret reference (set via that
+# project's .envrc or mise config), not something this repo defines. claude-container must wrap
+# the whole docker run in `op run --`, forward the variable's name as a bare -e flag, and never
+# put the reference itself on the docker run argv.
+function test_op_reference_var_wraps_docker_run_and_forwards_name_only() {
+  local case_home="${TEST_ROOT}/op-secret-home"
+  local run_args="${case_home}/run-args"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    JWT_SECRET="op://Private/test-item/test-field" \
+    TEST_OP_RUN_EXEC=1 \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'docker' "${op_run_args}" || \
+    fail "op run does not wrap the docker run invocation"
+  grep --fixed-strings --line-regexp --quiet -- 'JWT_SECRET' "${run_args}" || \
+    fail "the op:// reference's variable name is not forwarded to docker as a bare -e flag"
+  if grep --fixed-strings --quiet -- 'op://Private/test-item/test-field' "${run_args}"; then
+    fail "the op:// reference itself leaks into the docker run argv"
+  fi
+}
+
+# The common case (no project secrets in play) must not gain a new dependency on op.
+function test_no_op_reference_var_skips_op_run_entirely() {
+  local case_home="${TEST_ROOT}/no-op-secret-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  local claude_after_image
+  claude_after_image="$(grep -A1 --fixed-strings --line-regexp -- \
+    'claude-code-dev:latest' "${run_args}" | tail -n1)"
+  [[ "${claude_after_image}" == 'claude' ]] || \
+    fail "docker run's argv changes shape when no op:// reference is exported"
+}
+
+# A var that is already forwarded by name (OPENAI_API_KEY) must not also be picked up by the
+# generic op:// scan, or docker would receive two -e flags for the same variable.
+function test_op_reference_on_already_handled_var_is_not_duplicated() {
+  local case_home="${TEST_ROOT}/op-secret-dup-home"
+  local run_args="${case_home}/run-args"
+  local op_run_args="${case_home}/op-run-args"
+
+  mkdir -p "${case_home}/.codex"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    OPENAI_API_KEY="op://Private/test-item/openai-field" \
+    TEST_OP_RUN_EXEC=1 \
+    TEST_OP_RUN_ARGS_FILE="${op_run_args}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/codex-container" )
+
+  local flag_count
+  flag_count="$(grep --count --fixed-strings --line-regexp -- 'OPENAI_API_KEY' "${run_args}")"
+  [[ "${flag_count}" -eq 1 ]] || \
+    fail "OPENAI_API_KEY set to an op:// reference produces ${flag_count} -e flags instead of 1"
+}
+
 function test_container_help_does_not_require_docker() {
   local case_home="${TEST_ROOT}/help-home"
   local stdout_file="${case_home}/stdout"
@@ -549,6 +624,12 @@ function main() {
   print -r -- "PASS: a missing CONTAINER_EXTRA_MOUNTS path is skipped with a warning"
   test_extra_mounts_unset_adds_no_extra_volume
   print -r -- "PASS: an unset CONTAINER_EXTRA_MOUNTS adds no extra volume"
+  test_op_reference_var_wraps_docker_run_and_forwards_name_only
+  print -r -- "PASS: an op:// reference wraps docker run in op run and forwards its name only"
+  test_no_op_reference_var_skips_op_run_entirely
+  print -r -- "PASS: no op:// reference leaves docker run's argv unchanged"
+  test_op_reference_on_already_handled_var_is_not_duplicated
+  print -r -- "PASS: an op:// reference on an already-handled var is not duplicated"
   test_container_help_does_not_require_docker
   print -r -- "PASS: --container-help works without Docker"
   test_missing_image_errors_with_build_hint

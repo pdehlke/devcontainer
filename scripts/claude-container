@@ -36,6 +36,10 @@ Environment variables (passed through when set):
   GOOGLE_CLOUD_PROJECT      Google Cloud project ID for Gemini CLI Vertex usage
   GOOGLE_CLOUD_LOCATION     Google Cloud region for Gemini CLI Vertex usage
   OPENAI_API_KEY            OpenAI API key for Codex (falls back to macOS Keychain)
+
+Any other exported VARNAME=op://vault/item/field is forwarded to the container by name and
+resolved through \`op run\` (requires op on the host). Set it in the project's own .envrc or
+mise config, same as CONTAINER_EXTRA_MOUNTS above.
 HELP
   exit 0
 fi
@@ -195,14 +199,55 @@ if [ -n "${OPENAI_API_KEY:-}" ]; then
   export OPENAI_API_KEY
 fi
 
+# Any already-exported VARNAME=op://vault/item/field is a project's own secret reference, set via
+# that project's .envrc or mise config (the same durability pattern CONTAINER_EXTRA_MOUNTS uses),
+# not something this repo defines. Scan by value, not name, so this works for whatever secrets a
+# project declares, and skip names already handled above so a var like OPENAI_API_KEY set to an
+# op:// reference gets exactly one -e flag rather than two.
+SECRET_ENV_FLAGS=()
+while IFS= read -r var_name; do
+  case "$var_name" in
+  AWS_PROFILE | AWS_REGION | CLAUDE_CODE_OAUTH_TOKEN | CLAUDE_CODE_USE_BEDROCK | GITHUB_TOKEN | \
+    GOOGLE_CLOUD_PROJECT | GOOGLE_CLOUD_LOCATION | OPENAI_API_KEY | SSH_AUTH_SOCK)
+    continue
+    ;;
+  esac
+  case "${!var_name-}" in
+  op://*) SECRET_ENV_FLAGS+=(-e "$var_name") ;;
+  esac
+done < <(compgen -e)
+
 # Only allocate a pty when one is actually available, so non-interactive invocations (piped or
 # redirected, e.g. `<any> gh pr list > out.txt`) work instead of failing or emitting pty CRLFs.
 TTY_FLAGS=(-i)
-[ -t 0 ] && [ -t 1 ] && TTY_FLAGS+=(-t)
+IS_INTERACTIVE=0
+if [ -t 0 ] && [ -t 1 ]; then
+  TTY_FLAGS+=(-t)
+  IS_INTERACTIVE=1
+fi
+
+# Resolving op:// references requires op on the host; wrap the whole docker run in `op run` only
+# when there is at least one, so a project that never uses this facility never needs op installed.
+DOCKER_RUN_PREFIX=()
+if [ "${#SECRET_ENV_FLAGS[@]}" -gt 0 ]; then
+  if ! command -v op >/dev/null 2>&1; then
+    echo "Error: op (1Password CLI) not found on host, required to resolve op:// references" >&2
+    exit 1
+  fi
+  DOCKER_RUN_PREFIX=(op run)
+  # op run's secret masking makes stdout/stderr non-TTY even though stdin stays one, which the
+  # docker run client needs to proxy an interactive container session back to this terminal (and
+  # which confirmed breaks Claude Code's own REPL detection the same way). Only give up masking's
+  # safety net when the session is actually interactive; a piped/redirected invocation has no TTY
+  # to break in the first place.
+  [ "$IS_INTERACTIVE" = "1" ] && DOCKER_RUN_PREFIX+=(--no-masking)
+  DOCKER_RUN_PREFIX+=(--)
+fi
 
 # Run the dev container. SSH_AUTH_SOCK points at the in-image symlink the Dockerfile creates
-# to /run/host-services/ssh-auth.sock, matching compose.yaml's forwarding setup.
-exec docker run --rm "${TTY_FLAGS[@]}" \
+# to /run/host-services/ssh-auth.sock, matching compose.yaml's forwarding setup. DOCKER_RUN_PREFIX
+# wraps this in `op run --` only when SECRET_ENV_FLAGS found something to resolve.
+exec "${DOCKER_RUN_PREFIX[@]}" docker run --rm "${TTY_FLAGS[@]}" \
   "${VOLUMES[@]}" -w "${PWD_ABS}" \
   -e "SSH_AUTH_SOCK=/home/pde/.1password/agent.sock" \
   ${AWS_PROFILE:+-e "AWS_PROFILE=${AWS_PROFILE}"} \
@@ -213,4 +258,5 @@ exec docker run --rm "${TTY_FLAGS[@]}" \
   ${GOOGLE_CLOUD_PROJECT:+-e "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"} \
   ${GOOGLE_CLOUD_LOCATION:+-e "GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}"} \
   ${OPENAI_API_KEY:+-e OPENAI_API_KEY} \
+  "${SECRET_ENV_FLAGS[@]}" \
   "$IMAGE" "$@"

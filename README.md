@@ -70,3 +70,9 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
   Adding `CONTAINER_EXTRA_MOUNTS` to the launcher so a project's sibling checkout (e.g.
   `homeassistant` and its `homie-dashboard` fork) can be mounted alongside the current directory,
   plus the prior-art check against the upstream launcher's Docker-socket-proxy mount governance.
+
+- [Runtime secrets design](docs/superpowers/specs/2026-08-19-runtime-secrets-op-run-design.md)
+
+  Resolving a project's own runtime secrets (JWTs, DB passwords, site logins) through 1Password's
+  `op run`, on the host and in the container, plus why bridging 1Password's desktop-app socket
+  into the container and a project-local manifest file were both rejected.

@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# op-claude: launch Claude Code, Codex, or Gemini CLI directly on this host (no container),
+# wrapped in `op run` so any op://vault/item/field reference already exported in the environment
+# (typically via a project's own .envrc or mise config) resolves to a real value for that process
+# only. See docs/agents/building.md's "Runtime secrets with op run" section for the full picture,
+# including the container equivalent in scripts/claude-container.
+
+set -euo pipefail
+
+SELF="$(basename "$0")"
+
+if [[ "${1:-}" == "--container-help" || "${1:-}" == "-H" ]]; then
+  cat <<HELP
+Usage: $SELF [ARGS...] | [COMMAND...]
+
+Launch ${SELF#op-} on this host, under \`op run\`, so any already-exported op:// secret
+reference resolves for that process only. Set such references in the project's own .envrc or
+mise config; op-claude does not define or read any config file of its own.
+
+  op-claude                Launch Claude Code interactively
+  op-claude --model opus   Pass flags to Claude Code
+  op-codex                 Launch Codex CLI
+  op-gemini                Launch Gemini CLI
+  <any> bash                Run an arbitrary command under \`op run\` instead of the CLI
+  <any> --container-help    Show this help
+HELP
+  exit 0
+fi
+
+if ! command -v op >/dev/null 2>&1; then
+  echo "Error: op (1Password CLI) not found" >&2
+  exit 1
+fi
+
+# When invoked as an alternate launcher, inject the CLI command only when the user is launching
+# the CLI itself rather than an arbitrary command, matching scripts/claude-container's dispatch.
+if [[ "$SELF" == "op-codex" ]]; then
+  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+    set -- codex "$@"
+  fi
+elif [[ "$SELF" == "op-gemini" ]]; then
+  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+    set -- gemini "$@"
+  fi
+else
+  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+    set -- claude "$@"
+  fi
+fi
+
+# No Keychain fallback, no --yolo injection, no volume mounts here: those exist in
+# scripts/claude-container specifically to bridge macOS-only state into a Linux container. On the
+# bare host none of that applies; op run is the only thing this wrapper adds.
+OP_RUN_FLAGS=()
+# op run's secret masking makes stdout/stderr non-TTY even though stdin stays one, which breaks
+# an interactive REPL's own TTY detection (confirmed: Claude Code refuses to start, requiring
+# --print, with no prompt supplied). Only give up masking's safety net when the session is
+# actually interactive; a piped/redirected invocation has no TTY to break in the first place.
+if [ -t 0 ] && [ -t 1 ]; then
+  OP_RUN_FLAGS+=(--no-masking)
+fi
+exec op run "${OP_RUN_FLAGS[@]}" -- "$@"

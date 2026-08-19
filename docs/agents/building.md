@@ -100,6 +100,55 @@ applies automatically on `cd` rather than needing to be remembered per launch. S
 [the multi-repo mounts design](../superpowers/specs/2026-08-19-multi-repo-mounts-design.md) for
 why this mechanism was chosen over a project-local manifest file or a CLI flag.
 
+### Runtime secrets with `op run`
+
+A project sometimes needs a secret that isn't SSH or Git auth: a JWT for an internal API, a
+database password, a site login. Set it in that project's own `.envrc` (direnv) or mise config as
+a 1Password reference, never a plaintext value:
+
+```sh
+export JWT_SECRET="op://Private/some-item/credential"
+```
+
+`claude-container` (and `codex-container`/`gemini-container`) scans its own environment for any
+exported variable whose value starts with `op://`, forwards that variable's name into the
+container, and wraps the whole launch in `op run`, which resolves the reference for that run only
+using the host's own 1Password session. The value never touches this repo's code, the `docker
+run` argv, or a file on disk. `op` stays on the host: it's only required when a project actually
+sets a variable like this, matching the "op stays on host" rule above.
+
+`op run`'s secret masking (on by default, whenever it has something to mask) turns stdout and
+stderr into non-TTY streams, even though stdin stays a TTY. Claude Code's own REPL, and the
+`docker run` client proxying an interactive container session, both need a real TTY on stdout to
+work at all; without it Claude Code refuses to start, asking for `--print` with no prompt given.
+Both launchers detect an interactive session (`stdin` and `stdout` both TTYs) and pass
+`--no-masking` only then, which restores normal interactive behavior at the cost of that
+session's masking safety net. A piped or redirected invocation keeps masking, since it has no TTY
+to lose. Confirmed working for both interactive `op-claude` and interactive
+`claude-container`/`codex-container`/`gemini-container` sessions.
+
+**Known rough edge**: `claude-container zsh` (or any interactive shell in the container) can lose
+the resolved value again after it arrives. If the project also manages its own environment with
+mise-en-place, and that project's own mise config declares the same variable, mise's shell hook
+overwrites the container's already-resolved `op run` value with mise's own (unresolved) view of
+it the moment the hook fires, since `op` isn't installed in the image for mise to resolve it
+itself (`op` stays host-only, see above). Observed with `HA_TOKEN` in the `homeassistant` repo.
+Not chased as a fix: it only bites an interactive shell where the project happens to declare the
+same variable through mise inside the container too, and the direct workaround, if it becomes
+worth doing, is to keep the project's mise config from also declaring that variable.
+
+For a session running directly on the host, without the container, `op-claude` (and
+`op-codex`/`op-gemini`, installed by the same `make install`) does the same thing with no Docker
+involved:
+
+```zsh
+cd ~/src/some-project   # .envrc already exports JWT_SECRET=op://...
+op-claude                # launches claude, JWT_SECRET resolved for that process only
+```
+
+See [the design doc](../superpowers/specs/2026-08-19-runtime-secrets-op-run-design.md) for why a
+project-local manifest file and in-container `op` were both rejected in favor of this.
+
 ### Sign Claude Code in to the container
 
 Mounting `~/.claude` does not carry a login into the container, and no other mount can. Claude
