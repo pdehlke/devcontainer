@@ -356,21 +356,35 @@ function test_ambient_github_token_is_not_forwarded_without_opt_in() {
 
 function test_extra_mount_is_added_read_write() {
   local case_home="${TEST_ROOT}/extra-mount-home"
-  local run_args="${case_home}/run-args"
+  local run_args_claude="${case_home}/run-args-claude"
+  local run_args_codex="${case_home}/run-args-codex"
   local sibling="${TEST_ROOT}/sibling-repo"
 
   mkdir -p "${case_home}" "${sibling}"
 
+  # Test claude flavor
   ( cd "${case_home}" && env -i \
     PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
     HOME="${case_home}" \
     TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
     CONTAINER_EXTRA_MOUNTS="${sibling}" \
-    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args_claude}" \
     "${BIN_ROOT}/claude-container" )
 
-  grep --fixed-strings --line-regexp --quiet -- "${sibling}:${sibling}" "${run_args}" || \
-    fail "CONTAINER_EXTRA_MOUNTS path is not mounted read-write at its own path"
+  grep --fixed-strings --line-regexp --quiet -- "${sibling}:${sibling}" "${run_args_claude}" || \
+    fail "CONTAINER_EXTRA_MOUNTS path is not mounted read-write at its own path (claude flavor)"
+
+  # Test codex flavor to verify CONTAINER_EXTRA_MOUNTS applies identically to all flavors
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    OPENAI_API_KEY="test-key" \
+    CONTAINER_EXTRA_MOUNTS="${sibling}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args_codex}" \
+    "${BIN_ROOT}/codex-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- "${sibling}:${sibling}" "${run_args_codex}" || \
+    fail "CONTAINER_EXTRA_MOUNTS path is not mounted read-write at its own path (codex flavor)"
 }
 
 function test_extra_mounts_multiple_paths_each_added() {
@@ -420,25 +434,40 @@ function test_extra_mount_missing_path_is_skipped_with_warning() {
 }
 
 # The current directory and the SSH agent proxy socket are the only two unconditional mounts
-# (scripts/claude-container's own comment says so); an unset CONTAINER_EXTRA_MOUNTS must not add
-# a third.
+# (scripts/claude-container's own comment says so); an unset or empty CONTAINER_EXTRA_MOUNTS must
+# not add a third.
 function test_extra_mounts_unset_adds_no_extra_volume() {
   local case_home="${TEST_ROOT}/extra-mounts-unset-home"
-  local run_args="${case_home}/run-args"
+  local run_args_unset="${case_home}/run-args-unset"
+  local run_args_empty="${case_home}/run-args-empty"
 
   mkdir -p "${case_home}"
 
+  # Test unset
   ( cd "${case_home}" && env -i \
     PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
     HOME="${case_home}" \
     TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
-    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args_unset}" \
     "${BIN_ROOT}/claude-container" )
 
   local volume_count
-  volume_count="$(grep --count --fixed-strings --line-regexp -- '-v' "${run_args}")"
+  volume_count="$(grep --count --fixed-strings --line-regexp -- '-v' "${run_args_unset}")"
   [[ "${volume_count}" -eq 2 ]] || \
     fail "an unset CONTAINER_EXTRA_MOUNTS changes the -v flag count from the baseline of 2"
+
+  # Test explicitly empty string (must produce identical argv to unset case)
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    CONTAINER_EXTRA_MOUNTS="" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args_empty}" \
+    "${BIN_ROOT}/claude-container" )
+
+  volume_count="$(grep --count --fixed-strings --line-regexp -- '-v' "${run_args_empty}")"
+  [[ "${volume_count}" -eq 2 ]] || \
+    fail "an empty CONTAINER_EXTRA_MOUNTS changes the -v flag count from the baseline of 2"
 }
 
 function test_container_help_does_not_require_docker() {
