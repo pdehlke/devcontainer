@@ -1,0 +1,36 @@
+# Agent worktrees. Claude Code creates full repository checkouts under .claude/worktrees/, so
+# without this a `git add -A` commits an entire second copy of the repo into the repo. Other
+# .claude/ files stay trackable: a project settings.json belongs in version control.
+.claude/worktrees/
+.claude/settings.local.json
+
+# Credentials and local environment. This repo documents where secrets come from and never holds
+# their values (see CLAUDE.md), so anything matching these names is a mistake in progress rather
+# than something to commit.
+.env
+.env.*
+*.age
+*.key
+*.pem
+id_ed25519
+id_rsa
+secrets.yaml
+
+# Build and test scratch. The test scripts work in $TMPDIR, but a redirected run or an
+# interrupted build can leave these behind.
+*.log
+*.tmp
+tmp/
+.direnv/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Editor state
+*.swp
+*.swo
+*~
+.idea/
