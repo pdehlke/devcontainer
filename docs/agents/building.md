@@ -86,6 +86,20 @@ same 1Password SSH-agent forwarding `compose.yaml` uses. See
 [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md) for the full
 mount table and the reasoning behind the credential-mount decisions.
 
+A project that cross-references a sibling checkout — a fork, a paired repo, docs with hardcoded
+absolute paths into it — can have that checkout mounted alongside the current directory too, via
+`CONTAINER_EXTRA_MOUNTS` (colon-separated absolute host paths, mounted read-write at their own
+paths, same as the current directory):
+
+```zsh
+CONTAINER_EXTRA_MOUNTS=/Users/pde/src/github.com/pdehlke/homie-dashboard claude-container
+```
+
+Set it durably for a given project with a `.envrc` (direnv) in that project's own repo, so it
+applies automatically on `cd` rather than needing to be remembered per launch. See
+[the multi-repo mounts design](../superpowers/specs/2026-08-19-multi-repo-mounts-design.md) for
+why this mechanism was chosen over a project-local manifest file or a CLI flag.
+
 ### Sign Claude Code in to the container
 
 Mounting `~/.claude` does not carry a login into the container, and no other mount can. Claude
