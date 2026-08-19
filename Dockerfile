@@ -175,6 +175,18 @@ RUN set -eux; \
 	${HOME}/.local/bin/mise reshim; \
 	${HOME}/.local/bin/mise exec -- gemini --version
 
+# ccstatusline renders Claude Code's status line (~/.claude/settings.json's "statusLine.command"
+# on the host, carried into the container by the ~/.claude bind mount in scripts/claude-container).
+# Its own config, ~/.config/ccstatusline/settings.json, is already deployed by the dotfiles apply
+# above -- it's chezmoi-managed in the public dotfiles repo. The version below matches that
+# config's "installation.installedVersion" on the host; bump both together. ccstatusline has no
+# --version flag and always reads a JSON payload from stdin, so verify it by piping one through
+# instead of asking for a version string.
+RUN set -eux; \
+	${HOME}/.local/bin/mise exec -- npm install --global ccstatusline@2.2.22; \
+	${HOME}/.local/bin/mise reshim; \
+	echo '{}' | ${HOME}/.local/bin/mise exec -- ccstatusline >/dev/null
+
 # --with-deps installs Chromium's system libraries via sudo apt-get; pde has passwordless sudo
 # (see the sudoers block above), so this works non-interactively even as a non-root user.
 RUN set -eux; \

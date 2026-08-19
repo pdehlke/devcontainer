@@ -18,6 +18,7 @@ container can actually reach a private network some project depends on; see
 | gh | `2.92.0`, keyring-backed OAuth, scopes `admin:public_key, gist, read:org, repo` | Issue tracker work (see [docs/agents/issue-tracker.md](issue-tracker.md)) and PRs. |
 | Playwright | not installed globally on the host; pulled on demand via `npx playwright` | Live visual verification of UI changes, for projects whose review convention calls for it. In a Linux container, run `npx playwright install --with-deps chromium` at build or first run. |
 | semgrep | Homebrew install on host, `1.170.0` | Backs the Semgrep Guardian plugin's findings tools. `pip install semgrep` on Linux. |
+| ccstatusline | `2.2.22`, installed as a global npm package under mise's Node | Renders Claude Code's status line. Its own installer is an interactive TUI, so the container installs the pinned npm package directly rather than running it; the rendered config comes along for free because `~/.config/ccstatusline/settings.json` is chezmoi-managed in the public dotfiles repo and `~/.claude/settings.json`'s `statusLine` entry is carried in by the `~/.claude` bind mount (see [Claude Code config and skills](#claude-code-config-and-skills)). |
 
 Whether a project needs an `npm install` or has its own build step is project-specific; check
 that project's own docs rather than assuming one pattern here.
