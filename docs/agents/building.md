@@ -97,8 +97,23 @@ account identity in `~/.claude.json` is complete, which is why a container sessi
 account and still reports `Failed to authenticate: OAuth session expired and could not be
 refreshed`.
 
-The container needs a credential of its own. Mint one on the host and store it in the Keychain,
-where the launcher looks for it:
+The container needs a credential of its own. There are two ways to give it one, and they differ in
+scope, so the choice matters.
+
+**Sign in inside the container (preferred).** Run this once:
+
+```zsh
+claude-container claude auth login
+```
+
+The credential it writes is full scope, so Remote Control and claude.ai connectors work. It lands
+in `/home/pde/.claude/.credentials.json`, which is the host's `~/.claude` mounted read-write, so it
+persists for every later run. The launcher detects it and stops sending a token, because a token
+would override it. Being a mount, the credential is a plaintext file at mode 0600 in your home
+directory rather than a Keychain entry; the host keeps using the Keychain and ignores this file.
+
+**Mint a long-lived token (no browser at launch).** Useful when a browser round trip is not
+available:
 
 ```zsh
 claude setup-token
@@ -136,7 +151,13 @@ scoped to the container.
   macOS Keychain, which cannot be mounted, so `~/.claude` carries an empty-token stub. Follow
   [Sign Claude Code in to the container](#sign-claude-code-in-to-the-container). The launcher
   prints the same two commands when it starts Claude Code without a token.
-- `SessionEnd hook ... No such file or directory` in a container session: the mounted
-  `~/.claude/settings.json` wires hooks to host-only paths, and those paths do not exist in the
-  container. The message is harmless. This is the hooks caveat recorded in
-  [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md).
+- `Remote Control disconnected - Claude.ai login was rejected` in a container session: the session
+  is authenticated by a `claude setup-token` credential, which can only make model requests.
+  Run `claude-container claude auth login` once to replace it with a full-scope credential, as
+  [the Remote Control troubleshooting
+  section](https://code.claude.com/docs/en/remote-control) directs. The launcher stops sending the
+  token as soon as that credential exists.
+- `SessionEnd hook ... No such file or directory` in a container session: fixed as of the hook
+  guards in the private dotfiles repo, which make every hook a no-op where its host-only
+  dependency (`workmux`, the `~/.config/tmux` scripts) is missing. If it reappears, the container
+  is running against an older `~/.claude/settings.json` than the host's.

@@ -179,6 +179,52 @@ function test_missing_claude_oauth_token_warns_with_setup_hint() {
   fi
 }
 
+# A setup-token credential cannot establish Remote Control sessions, and it outranks the on-disk
+# credential, so forwarding it once the container has been signed in with `claude auth login`
+# would silently take Remote Control away again.
+function test_full_scope_credential_suppresses_the_oauth_token() {
+  local case_home="${TEST_ROOT}/oauth-full-scope-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}/.claude"
+  print -r -- '{"claudeAiOauth":{"accessToken":"full-scope-token","refreshToken":"r"}}' \
+    >"${case_home}/.claude/.credentials.json"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-should-be-ignored" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  if grep --fixed-strings --line-regexp --quiet -- 'CLAUDE_CODE_OAUTH_TOKEN' "${run_args}"; then
+    fail "the setup-token is forwarded even though a full-scope credential is present"
+  fi
+  grep --fixed-strings --quiet -- "${case_home}/.claude:/home/pde/.claude:rw" "${run_args}" || \
+    fail "~/.claude is not mounted, so the full-scope credential cannot reach the container"
+}
+
+# The host's own credentials file is a stub with empty tokens, which must not be mistaken for a
+# usable login: that stub is the reason a container starts logged out in the first place.
+function test_empty_token_stub_does_not_suppress_the_oauth_token() {
+  local case_home="${TEST_ROOT}/oauth-stub-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}/.claude"
+  print -r -- '{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0}}' \
+    >"${case_home}/.claude/.credentials.json"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-stub-fallback" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- 'CLAUDE_CODE_OAUTH_TOKEN' "${run_args}" || \
+    fail "the empty-token stub is treated as a usable login, leaving the container logged out"
+}
+
 # The token authenticates Claude Code only; the other two CLIs have their own credentials.
 function test_claude_oauth_token_is_not_forwarded_to_other_flavors() {
   local case_home="${TEST_ROOT}/oauth-other-flavor-home"
@@ -365,6 +411,10 @@ function main() {
   print -r -- "PASS: a missing Claude OAuth token warns with the setup commands"
   test_claude_oauth_token_is_not_forwarded_to_other_flavors
   print -r -- "PASS: the Claude OAuth token is not forwarded to other flavors"
+  test_full_scope_credential_suppresses_the_oauth_token
+  print -r -- "PASS: a full-scope credential suppresses the setup-token"
+  test_empty_token_stub_does_not_suppress_the_oauth_token
+  print -r -- "PASS: the empty-token stub does not suppress the setup-token"
   test_codex_flavor_injects_yolo_and_mounts_codex_config
   print -r -- "PASS: codex flavor injects --yolo and mounts codex config"
   test_gemini_flavor_injects_yolo_and_mounts_gemini_config

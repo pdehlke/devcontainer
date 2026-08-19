@@ -49,6 +49,17 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   exit 1
 fi
 
+# True when ~/.claude holds a credential Claude Code can actually use. `claude auth login` run
+# inside the container writes one here, through the read-write ~/.claude mount. The host's own
+# file does not count: macOS keeps the real tokens in the Keychain and leaves behind a stub whose
+# accessToken is an empty string, which is the whole reason a container starts logged out.
+claude_login_credential_present() {
+  local credentials="${HOME}/.claude/.credentials.json"
+
+  [ -s "${credentials}" ] || return 1
+  tr -d ' \n\t' <"${credentials}" | grep -q '"accessToken":"[^"]'
+}
+
 # When invoked as an alternate launcher, inject the CLI command only when the user is launching
 # the CLI itself rather than an arbitrary container command.
 if [[ "$SELF" == "codex-container" ]]; then
@@ -89,23 +100,35 @@ else
   # out. Set here, it reaches only the container. FORWARD_CLAUDE_OAUTH_TOKEN, rather than the
   # variable's own presence, gates the -e below: this credential authenticates Claude Code alone,
   # and codex and gemini launches must not receive it just because the caller's shell has it set.
-  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-    CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -w 2>/dev/null)" || true
-  fi
-  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-    export CLAUDE_CODE_OAUTH_TOKEN
-    FORWARD_CLAUDE_OAUTH_TOKEN=1
-  elif [ "${1:-}" = "claude" ]; then
-    cat >&2 <<'NOTOKEN'
-Warning: no CLAUDE_CODE_OAUTH_TOKEN found; Claude Code will start logged out.
+  # A setup-token credential is the fallback, not the preference. It authenticates model requests
+  # and nothing else, so Remote Control and claude.ai connectors stay unavailable, and because
+  # CLAUDE_CODE_OAUTH_TOKEN outranks the on-disk credential it would silently downgrade a
+  # container that has already been signed in with `claude auth login`. Send it only when there is
+  # no full-scope credential to override.
+  if ! claude_login_credential_present; then
+    if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+      CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -w 2>/dev/null)" || true
+    fi
+    if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+      export CLAUDE_CODE_OAUTH_TOKEN
+      FORWARD_CLAUDE_OAUTH_TOKEN=1
+    elif [ "${1:-}" = "claude" ]; then
+      cat >&2 <<'NOTOKEN'
+Warning: Claude Code will start logged out in this container.
   The host's login lives in the macOS Keychain, which cannot be mounted into a Linux
-  container, so the mounted ~/.claude carries an empty-token stub. Mint a container
-  credential once (it lasts a year), then store it for every future launch:
-    claude setup-token
-    security add-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -a "$USER" -w
+  container, so the mounted ~/.claude carries a stub with empty tokens. Two ways to fix
+  it, in order of preference:
+    1. Sign in inside the container once. Full scope, so Remote Control and claude.ai
+       connectors work, and it persists to ~/.claude/.credentials.json for later runs:
+         claude-container claude auth login
+    2. Mint a long-lived token on the host. No browser needed at launch, but it
+       authenticates model requests only, so Remote Control stays unavailable:
+         claude setup-token
+         security add-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -a "$USER" -w
   Do not export CLAUDE_CODE_OAUTH_TOKEN in your shell profile: Claude Code deletes the
   host's Keychain login on exit when that variable is set.
 NOTOKEN
+    fi
   fi
 fi
 
