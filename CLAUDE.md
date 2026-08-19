@@ -9,6 +9,36 @@ Codex, and Gemini CLI as coding agents in a container, plus the documentation be
 choices. See [docs/agents/container-setup.md](docs/agents/container-setup.md) for the
 requirements gathered so far. The container itself has not been built yet.
 
+## Process scale
+
+This repo is maintained by one person on a personal-tier account, not a team with an unlimited
+token budget. Treat token and session cost as a real constraint on every task here, not a free
+resource. This overrides the general instinct to invoke every skill that could apply: the fact
+that a task could route through brainstorming, a written spec, a separate plan document, or
+subagent-driven-development does not mean it should. Those are tools for specific situations
+below, not defaults.
+
+For most work in this repo (a script change, a test addition, a docs edit, anything scoped to a
+handful of files with no real architectural ambiguity), implement it directly. Read the relevant
+files, make the edit, run the existing test suite, self-review the diff, done. No spec document,
+no separate plan document, no subagent dispatch.
+
+Reserve brainstorming, a written spec and plan, and subagent-driven-development's fresh
+implementer-plus-reviewer subagent per task for cases that actually need that weight: a genuinely
+ambiguous architecture with multiple real approaches, a change spanning many files or sessions, or
+pde asking for that process by name. If it's unclear whether a task needs the heavier process, ask
+rather than defaulting to the expensive path "to be safe."
+
+When a review is warranted beyond your own self-review, do one pass yourself or dispatch a single
+reviewer scoped to the actual diff. Do not default to a chain of fresh-subagent-per-task
+reviewers, fix loops, and a final whole-branch review on the most capable model for a change under
+a few hundred lines. Match review depth and model choice to the diff's actual size and risk,
+never to a blanket rule.
+
+None of this relaxes correctness: run tests, verify the change works, and don't skip verification
+to save tokens. The cut is in ceremony, documents, subagent round-trips, and review layers that
+don't change the outcome, not in checking the work.
+
 ## What doesn't belong here
 
 - Secrets of any kind: API keys, OAuth tokens, SSH private keys, or long-lived access tokens
