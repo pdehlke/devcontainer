@@ -64,3 +64,9 @@ A Docker setup for running Claude Code, Codex, and Gemini CLI as coding agents i
 - [Container launcher implementation plan](docs/superpowers/plans/2026-08-18-container-launcher.md)
 
   Test-first tasks for the launcher script, its Makefile install target, and documentation.
+
+- [Multi-repo mounts design](docs/superpowers/specs/2026-08-19-multi-repo-mounts-design.md)
+
+  Adding `CONTAINER_EXTRA_MOUNTS` to the launcher so a project's sibling checkout (e.g.
+  `homeassistant` and its `homie-dashboard` fork) can be mounted alongside the current directory,
+  plus the prior-art check against the upstream launcher's Docker-socket-proxy mount governance.
