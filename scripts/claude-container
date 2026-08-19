@@ -31,6 +31,8 @@ Environment variables (passed through when set):
                             (falls back to the macOS Keychain service of the same name)
   CLAUDE_CODE_USE_BEDROCK   Set to 1 for AWS Bedrock
   CLAUDE_GITHUB_TOKEN       GitHub personal access token for gh CLI
+  CONTAINER_EXTRA_MOUNTS    Colon-separated extra host paths to mount read-write (e.g. a sibling
+                            repo a project's docs cross-reference)
   GOOGLE_CLOUD_PROJECT      Google Cloud project ID for Gemini CLI Vertex usage
   GOOGLE_CLOUD_LOCATION     Google Cloud region for Gemini CLI Vertex usage
   OPENAI_API_KEY            OpenAI API key for Codex (falls back to macOS Keychain)
@@ -148,6 +150,22 @@ else
 fi
 [ -d "${HOME}/.aws" ] && VOLUMES+=(-v "${HOME}/.aws:/home/pde/.aws:ro")
 [ -d "${HOME}/.config/gh" ] && VOLUMES+=(-v "${HOME}/.config/gh:/home/pde/.config/gh:ro")
+
+# Extra sibling-repo mounts: CONTAINER_EXTRA_MOUNTS is a colon-separated list of absolute host
+# paths, for a project whose own docs cross-reference a paired checkout (a fork, a companion
+# repo). Each is mounted read-write at its own path, same as the current directory above. A path
+# that doesn't exist gets a warning, not a hard failure, matching the ~/.gitconfig pattern above.
+if [ -n "${CONTAINER_EXTRA_MOUNTS:-}" ]; then
+  IFS=':' read -ra EXTRA_MOUNTS <<<"${CONTAINER_EXTRA_MOUNTS}"
+  for extra_mount in "${EXTRA_MOUNTS[@]}"; do
+    [ -n "${extra_mount}" ] || continue
+    if [ -d "${extra_mount}" ]; then
+      VOLUMES+=(-v "${extra_mount}:${extra_mount}")
+    else
+      echo "Warning: CONTAINER_EXTRA_MOUNTS path not found, skipping: ${extra_mount}" >&2
+    fi
+  done
+fi
 
 if [ "$TOOL_FLAVOR" = "codex" ]; then
   [ -d "${HOME}/.codex" ] && VOLUMES+=(-v "${HOME}/.codex:/home/pde/.codex:rw")

@@ -354,6 +354,93 @@ function test_ambient_github_token_is_not_forwarded_without_opt_in() {
   fi
 }
 
+function test_extra_mount_is_added_read_write() {
+  local case_home="${TEST_ROOT}/extra-mount-home"
+  local run_args="${case_home}/run-args"
+  local sibling="${TEST_ROOT}/sibling-repo"
+
+  mkdir -p "${case_home}" "${sibling}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    CONTAINER_EXTRA_MOUNTS="${sibling}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- "${sibling}:${sibling}" "${run_args}" || \
+    fail "CONTAINER_EXTRA_MOUNTS path is not mounted read-write at its own path"
+}
+
+function test_extra_mounts_multiple_paths_each_added() {
+  local case_home="${TEST_ROOT}/extra-mounts-multi-home"
+  local run_args="${case_home}/run-args"
+  local sibling_one="${TEST_ROOT}/sibling-repo-one"
+  local sibling_two="${TEST_ROOT}/sibling-repo-two"
+
+  mkdir -p "${case_home}" "${sibling_one}" "${sibling_two}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    CONTAINER_EXTRA_MOUNTS="${sibling_one}:${sibling_two}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  grep --fixed-strings --line-regexp --quiet -- "${sibling_one}:${sibling_one}" "${run_args}" || \
+    fail "first CONTAINER_EXTRA_MOUNTS path is not mounted"
+  grep --fixed-strings --line-regexp --quiet -- "${sibling_two}:${sibling_two}" "${run_args}" || \
+    fail "second CONTAINER_EXTRA_MOUNTS path is not mounted"
+}
+
+function test_extra_mount_missing_path_is_skipped_with_warning() {
+  local case_home="${TEST_ROOT}/extra-mount-missing-home"
+  local run_args="${case_home}/run-args"
+  local stderr_file="${case_home}/stderr"
+  local missing="${TEST_ROOT}/does-not-exist"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    CONTAINER_EXTRA_MOUNTS="${missing}" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" 2>"${stderr_file}" )
+
+  grep --fixed-strings --quiet -- \
+    "CONTAINER_EXTRA_MOUNTS path not found, skipping: ${missing}" "${stderr_file}" || \
+    fail "a missing CONTAINER_EXTRA_MOUNTS path warns without naming the path"
+  if grep --fixed-strings --quiet -- "${missing}:${missing}" "${run_args}"; then
+    fail "a missing CONTAINER_EXTRA_MOUNTS path is mounted anyway"
+  fi
+}
+
+# The current directory and the SSH agent proxy socket are the only two unconditional mounts
+# (scripts/claude-container's own comment says so); an unset CONTAINER_EXTRA_MOUNTS must not add
+# a third.
+function test_extra_mounts_unset_adds_no_extra_volume() {
+  local case_home="${TEST_ROOT}/extra-mounts-unset-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  local volume_count
+  volume_count="$(grep --count --fixed-strings --line-regexp -- '-v' "${run_args}")"
+  [[ "${volume_count}" -eq 2 ]] || \
+    fail "an unset CONTAINER_EXTRA_MOUNTS changes the -v flag count from the baseline of 2"
+}
+
 function test_container_help_does_not_require_docker() {
   local case_home="${TEST_ROOT}/help-home"
   local stdout_file="${case_home}/stdout"
@@ -425,6 +512,14 @@ function main() {
   print -r -- "PASS: GITHUB_TOKEN reaches docker without leaking onto its argv"
   test_ambient_github_token_is_not_forwarded_without_opt_in
   print -r -- "PASS: an ambient GITHUB_TOKEN is not forwarded without CLAUDE_GITHUB_TOKEN"
+  test_extra_mount_is_added_read_write
+  print -r -- "PASS: CONTAINER_EXTRA_MOUNTS path is mounted read-write"
+  test_extra_mounts_multiple_paths_each_added
+  print -r -- "PASS: multiple CONTAINER_EXTRA_MOUNTS paths are each mounted"
+  test_extra_mount_missing_path_is_skipped_with_warning
+  print -r -- "PASS: a missing CONTAINER_EXTRA_MOUNTS path is skipped with a warning"
+  test_extra_mounts_unset_adds_no_extra_volume
+  print -r -- "PASS: an unset CONTAINER_EXTRA_MOUNTS adds no extra volume"
   test_container_help_does_not_require_docker
   print -r -- "PASS: --container-help works without Docker"
   test_missing_image_errors_with_build_hint
