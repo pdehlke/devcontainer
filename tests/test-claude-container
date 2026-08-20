@@ -545,6 +545,60 @@ function test_op_reference_on_already_handled_var_is_not_duplicated() {
     fail "OPENAI_API_KEY set to an op:// reference produces ${flag_count} -e flags instead of 1"
 }
 
+# A public signing key is safe to forward but must travel as env (bare -e), not argv, and
+# gpg.ssh.program must always be forced to the container's own ssh-keygen regardless of whatever
+# host-specific signing helper the host's git config names.
+function test_git_signing_key_is_forwarded_off_argv() {
+  local case_home="${TEST_ROOT}/signing-key-home"
+  local run_args="${case_home}/run-args"
+  local sentinel="ssh-ed25519 AAAAtest-signingkey-sentinel"
+
+  mkdir -p "${case_home}"
+  print -r -- $'[user]\n\tsigningkey = '"${sentinel}" >"${case_home}/.gitconfig"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  local git_config_name
+  for git_config_name in GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 \
+    GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1; do
+    grep --fixed-strings --line-regexp --quiet -- "${git_config_name}" "${run_args}" || \
+      fail "${git_config_name} is not passed to docker as a bare -e flag"
+  done
+  if grep --fixed-strings --quiet -- "${sentinel}" "${run_args}"; then
+    fail "the signing key value leaks into the docker run argv"
+  fi
+  if grep --fixed-strings --line-regexp --quiet -- 'ssh-keygen' "${run_args}"; then
+    fail "the forced gpg.ssh.program value leaks into the docker run argv"
+  fi
+}
+
+# The common case (no signing key configured) must not gain new -e flags.
+function test_no_signing_key_skips_git_config_env_forwarding() {
+  local case_home="${TEST_ROOT}/no-signing-key-home"
+  local run_args="${case_home}/run-args"
+
+  mkdir -p "${case_home}"
+  : >"${case_home}/.gitconfig"
+
+  ( cd "${case_home}" && env -i \
+    PATH="${STUB_PATH}:${ORIGINAL_PATH}" \
+    HOME="${case_home}" \
+    GIT_CONFIG_NOSYSTEM=1 \
+    TEST_KEYCHAIN_CLAUDE_CODE_OAUTH_TOKEN="test-oauth-token" \
+    TEST_DOCKER_RUN_ARGS_FILE="${run_args}" \
+    "${BIN_ROOT}/claude-container" )
+
+  if grep --fixed-strings --quiet -- 'GIT_CONFIG_' "${run_args}"; then
+    fail "GIT_CONFIG_* flags are forwarded even though no signing key is configured"
+  fi
+}
+
 function test_container_help_does_not_require_docker() {
   local case_home="${TEST_ROOT}/help-home"
   local stdout_file="${case_home}/stdout"
@@ -630,6 +684,10 @@ function main() {
   print -r -- "PASS: no op:// reference leaves docker run's argv unchanged"
   test_op_reference_on_already_handled_var_is_not_duplicated
   print -r -- "PASS: an op:// reference on an already-handled var is not duplicated"
+  test_git_signing_key_is_forwarded_off_argv
+  print -r -- "PASS: a configured git signing key is forwarded to docker off argv"
+  test_no_signing_key_skips_git_config_env_forwarding
+  print -r -- "PASS: no configured signing key adds no GIT_CONFIG_* flags"
   test_container_help_does_not_require_docker
   print -r -- "PASS: --container-help works without Docker"
   test_missing_image_errors_with_build_hint

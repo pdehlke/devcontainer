@@ -93,7 +93,10 @@ claude-container --container-help
 Unlike `docker compose run`, this launcher mounts the current directory read-write, plus host
 credentials: `~/.gitconfig`, `~/.aws`, and `~/.config/gh` read-only, and the per-tool config
 directories (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/gcloud`) read-write, on top of the
-same 1Password SSH-agent forwarding `compose.yaml` uses. See
+same 1Password SSH-agent forwarding `compose.yaml` uses. It also forwards a git commit-signing
+key derived from the host's own effective git config, when one is set (see
+[container-setup.md](container-setup.md)); the `~/.gitconfig` mount alone isn't enough for that.
+See
 [the launcher design](../superpowers/specs/2026-08-18-container-launcher-design.md) for the full
 mount table and the reasoning behind the credential-mount decisions.
 

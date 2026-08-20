@@ -45,6 +45,17 @@ pointing at the project it was forked from).
   typically backed by an SSH agent (Secretive, 1Password, or similar), not `~/.ssh/id_*` in
   cleartext. The clean container answer is SSH agent forwarding (mount the host's
   `SSH_AUTH_SOCK`), not placing key material in the image.
+- Verified on this host: `user.signingkey` and `gpg.ssh.program` live in `~/.gitconfig.user`, a
+  file `~/.gitconfig` pulls in via `include.path` rather than setting directly. A launcher that
+  mounts only `~/.gitconfig` doesn't carry those two settings in; git ignores the missing include
+  silently rather than erroring, so the gap shows up only as signing failing, not as a broken
+  `git` invocation. `gpg.ssh.program` here is also set to
+  `/Applications/1Password.app/Contents/MacOS/op-ssh-sign`, a macOS app binary that cannot run in
+  a Linux image regardless of what gets mounted. Read the host's effective `user.signingkey` at
+  launch time instead (a public key, safe to forward) and force `gpg.ssh.program` to the
+  container's own `ssh-keygen`, git's default SSH signer, which resolves a bare public key
+  against whatever agent `SSH_AUTH_SOCK` points to, over the same forwarded agent socket plain
+  SSH auth already uses.
 - `gh` is commonly authenticated via the OS keyring on a host. That doesn't travel. Run
   `gh auth login` fresh inside the container, or pass a scoped `GH_TOKEN`.
 - Because `gh`'s git protocol is `ssh`, cloning and pushing over that protocol also needs that

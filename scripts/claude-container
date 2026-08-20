@@ -199,6 +199,37 @@ if [ -n "${OPENAI_API_KEY:-}" ]; then
   export OPENAI_API_KEY
 fi
 
+# The host may sign commits over SSH (gpg.format=ssh, commit.gpgsign=true). user.signingkey is a
+# public key, safe to read and forward: the matching private key never leaves the host's SSH
+# agent, reached only through the SSH_AUTH_SOCK forwarding set up above, the same path plain SSH
+# auth already uses successfully. It's read here, from the host's effective git config, rather
+# than relied on from the ~/.gitconfig mount above, because it commonly lives in a separate file
+# pulled in by that file's own `include.path` (e.g. ~/.gitconfig.user), which the mount does not
+# carry in. gpg.ssh.program is forced to this container's own ssh-keygen regardless of whatever
+# the host configures there, because a host value naming a platform-specific signing helper
+# (1Password's macOS app binary, for instance) cannot run inside this Linux image; ssh-keygen is
+# git's own default SSH signer, and it signs directly against the forwarded agent by resolving
+# the bare public key, the same way plain SSH auth already does.
+#
+# Passed as GIT_CONFIG_COUNT/KEY/VALUE, git's env-var equivalent of `-c`, rather than editing the
+# mounted ~/.gitconfig, so no file needs writing or cleanup. That gives it the same precedence as
+# `-c`, which outranks even a repo-local user.signingkey. Fine today, since no project overrides
+# it locally, but would need revisiting if one starts to.
+GIT_SIGNINGKEY="$(git config --get user.signingkey 2>/dev/null)" || true
+GIT_SIGNING_ENV_FLAGS=()
+if [ -n "${GIT_SIGNINGKEY}" ]; then
+  GIT_CONFIG_COUNT=2
+  GIT_CONFIG_KEY_0="user.signingkey"
+  GIT_CONFIG_VALUE_0="${GIT_SIGNINGKEY}"
+  GIT_CONFIG_KEY_1="gpg.ssh.program"
+  GIT_CONFIG_VALUE_1="ssh-keygen"
+  export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
+  GIT_SIGNING_ENV_FLAGS=(
+    -e GIT_CONFIG_COUNT -e GIT_CONFIG_KEY_0 -e GIT_CONFIG_VALUE_0
+    -e GIT_CONFIG_KEY_1 -e GIT_CONFIG_VALUE_1
+  )
+fi
+
 # Any already-exported VARNAME=op://vault/item/field is a project's own secret reference, set via
 # that project's .envrc or mise config (the same durability pattern CONTAINER_EXTRA_MOUNTS uses),
 # not something this repo defines. Scan by value, not name, so this works for whatever secrets a
@@ -258,5 +289,6 @@ exec "${DOCKER_RUN_PREFIX[@]}" docker run --rm "${TTY_FLAGS[@]}" \
   ${GOOGLE_CLOUD_PROJECT:+-e "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"} \
   ${GOOGLE_CLOUD_LOCATION:+-e "GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}"} \
   ${OPENAI_API_KEY:+-e OPENAI_API_KEY} \
+  "${GIT_SIGNING_ENV_FLAGS[@]}" \
   "${SECRET_ENV_FLAGS[@]}" \
   "$IMAGE" "$@"
