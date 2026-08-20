@@ -43,6 +43,7 @@ function TRAPZERR() {
 
 function test_default_flavor_mounts_and_forwards_ssh_agent() {
   local case_home="${TEST_ROOT}/default-home"
+  local mounts_after_claude
   local run_args="${case_home}/run-args"
 
   mkdir -p "${case_home}/.claude"
@@ -71,6 +72,10 @@ function test_default_flavor_mounts_and_forwards_ssh_agent() {
     fail ".gitconfig is not mounted read-only"
   grep --fixed-strings --quiet -- "${case_home}/.claude:/home/pde/.claude:rw" "${run_args}" || \
     fail "~/.claude is not mounted read-write"
+  mounts_after_claude="$(grep -A2 --fixed-strings --line-regexp -- \
+    "${case_home}/.claude:/home/pde/.claude:rw" "${run_args}" | tail -n2)"
+  [[ "${mounts_after_claude}" == $'-v\n/home/pde/.claude/skills' ]] || \
+    fail "container skills do not override the host ~/.claude/skills directory"
   grep --fixed-strings --quiet -- "${case_home}/.claude.json:/home/pde/.claude.json:rw" "${run_args}" || \
     fail "~/.claude.json is not mounted read-write"
   grep --fixed-strings --line-regexp --quiet -- 'claude-code-dev:latest' "${run_args}" || \

@@ -54,7 +54,7 @@ function _preflight() {
   [[ -n "${agent_socket}" ]] || _die "SSH_AUTH_SOCK is required"
   [[ -S "${agent_socket}" ]] || _die "SSH_AUTH_SOCK does not name a socket"
   ssh-add -L >/dev/null 2>&1 || _die "the selected SSH agent exposes no keys"
-  op whoami >/dev/null 2>&1 || _die "1Password CLI authentication is required"
+  op whoami >/dev/null 2>&1 || _die "1Password CLI authentication is required. Run op signin."
   docker compose version >/dev/null 2>&1 || _die "Docker Compose is unavailable"
   docker info >/dev/null 2>&1 || _die "Docker daemon is unavailable"
 }

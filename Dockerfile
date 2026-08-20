@@ -18,13 +18,13 @@ RUN set -eux; \
 	apt-get update; \
 	DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
 	age \
-	bat \
 	ca-certificates \
 	curl \
 	git \
 	openssh-client \
 	python3 \
 	python3-pip \
+	ripgrep \
 	sudo \
 	tmux \
 	zoxide \
@@ -34,6 +34,7 @@ RUN set -eux; \
 # semgrep backs the Semgrep Guardian plugin's findings tools; there's no apt package, and
 # Ubuntu 24.04's system pip is externally managed, so --break-system-packages is required.
 RUN set -eux; \
+	python3 -m pip install --no-cache-dir --break-system-packages aiohttp; \
 	python3 -m pip install --no-cache-dir --break-system-packages semgrep; \
 	semgrep --version
 
@@ -162,7 +163,7 @@ RUN set -eu; \
 	test "${github_entry_count}" = 1; \
 	if ssh-keygen -F '[github.com]:22' -f "${known_hosts}" >/dev/null; then exit 1; fi
 
-RUN ${HOME}/.local/bin/mise use node neovim
+RUN ${HOME}/.local/bin/mise use node neovim bat
 
 # gh is already pinned in the dotfiles-managed mise config (deployed to
 # ~/.config/mise/config.toml by the chezmoi apply above); install that version rather than

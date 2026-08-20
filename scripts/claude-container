@@ -11,7 +11,7 @@ SELF="$(basename "$0")"
 TOOL_FLAVOR="claude"
 
 if [[ "${1:-}" == "--container-help" || "${1:-}" == "-H" ]]; then
-  cat <<HELP
+	cat <<HELP
 Usage: $SELF [ARGS...] | [COMMAND...]
 
 Launch ${SELF%%-container} in the devcontainer image with your current directory mounted.
@@ -41,85 +41,86 @@ Any other exported VARNAME=op://vault/item/field is forwarded to the container b
 resolved through \`op run\` (requires op on the host). Set it in the project's own .envrc or
 mise config, same as CONTAINER_EXTRA_MOUNTS above.
 HELP
-  exit 0
+	exit 0
 fi
 
 # Prerequisite checks
 if ! docker info >/dev/null 2>&1; then
-  echo "Error: Docker is not running" >&2
-  exit 1
+	echo "Error: Docker is not running" >&2
+	exit 1
 fi
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "Error: Image $IMAGE not found. Build it from the devcontainer repo:" >&2
-  echo "  ./build.zsh" >&2
-  exit 1
-fi
+#
+# if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+# 	echo "Error: Image $IMAGE not found. Build it from the devcontainer repo:" >&2
+# 	echo "  ./build.zsh" >&2
+# 	exit 1
+# fi
 
 # True when ~/.claude holds a credential Claude Code can actually use. `claude auth login` run
 # inside the container writes one here, through the read-write ~/.claude mount. The host's own
 # file does not count: macOS keeps the real tokens in the Keychain and leaves behind a stub whose
 # accessToken is an empty string, which is the whole reason a container starts logged out.
 claude_login_credential_present() {
-  local credentials="${HOME}/.claude/.credentials.json"
+	local credentials="${HOME}/.claude/.credentials.json"
 
-  [ -s "${credentials}" ] || return 1
-  tr -d ' \n\t' <"${credentials}" | grep -q '"accessToken":"[^"]'
+	[ -s "${credentials}" ] || return 1
+	tr -d ' \n\t' <"${credentials}" | grep -q '"accessToken":"[^"]'
 }
 
 # When invoked as an alternate launcher, inject the CLI command only when the user is launching
 # the CLI itself rather than an arbitrary container command.
 if [[ "$SELF" == "codex-container" ]]; then
-  TOOL_FLAVOR="codex"
-  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
-    if [ -z "${OPENAI_API_KEY:-}" ]; then
-      OPENAI_API_KEY="$(security find-generic-password -s OPENAI_API_KEY -w 2>/dev/null)" || {
-        echo "Error: OPENAI_API_KEY not found in environment or macOS Keychain" >&2
-        echo "  Store it with: security add-generic-password -s OPENAI_API_KEY -a openai -w 'sk-...'" >&2
-        exit 1
-      }
-    fi
-    set -- codex --yolo "$@"
-  fi
+	TOOL_FLAVOR="codex"
+	if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+		if [ -z "${OPENAI_API_KEY:-}" ]; then
+			OPENAI_API_KEY="$(security find-generic-password -s OPENAI_API_KEY -w 2>/dev/null)" || {
+				echo "Error: OPENAI_API_KEY not found in environment or macOS Keychain" >&2
+				echo "  Store it with: security add-generic-password -s OPENAI_API_KEY -a openai -w 'sk-...'" >&2
+				exit 1
+			}
+		fi
+		set -- codex --yolo "$@"
+	fi
 elif [[ "$SELF" == "gemini-container" ]]; then
-  TOOL_FLAVOR="gemini"
-  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
-    set -- gemini --yolo "$@"
-  fi
+	TOOL_FLAVOR="gemini"
+	if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+		set -- gemini --yolo "$@"
+	fi
 else
-  if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
-    set -- claude "$@"
-  fi
+	if [ $# -eq 0 ] || [[ "${1:0:1}" == "-" ]]; then
+		set -- claude "$@"
+	fi
 
-  # Claude Code stores its OAuth credentials in the macOS Keychain on this host, but reads them
-  # from ~/.claude/.credentials.json on Linux. The mounted ~/.claude therefore reaches the
-  # container carrying a stub whose accessToken and refreshToken are empty strings, so a container
-  # session knows the account -- that comes from ~/.claude.json's oauthAccount, which is complete
-  # -- while having no usable token, and fails with "OAuth session expired and could not be
-  # refreshed". The Keychain is not a file, so no additional mount can close this gap: the
-  # container needs a credential of its own. CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`,
-  # outranks the on-disk credential in Claude Code's authentication precedence, so it bypasses the
-  # unusable stub rather than having to replace it.
-  #
-  # Reading it from the Keychain rather than the shell profile is deliberate. Claude Code deletes
-  # the "Claude Code-credentials" Keychain entry on exit when CLAUDE_CODE_OAUTH_TOKEN is set
-  # (anthropics/claude-code#37512), so exporting this variable in ~/.zshrc would log the *host*
-  # out. Set here, it reaches only the container. FORWARD_CLAUDE_OAUTH_TOKEN, rather than the
-  # variable's own presence, gates the -e below: this credential authenticates Claude Code alone,
-  # and codex and gemini launches must not receive it just because the caller's shell has it set.
-  # A setup-token credential is the fallback, not the preference. It authenticates model requests
-  # and nothing else, so Remote Control and claude.ai connectors stay unavailable, and because
-  # CLAUDE_CODE_OAUTH_TOKEN outranks the on-disk credential it would silently downgrade a
-  # container that has already been signed in with `claude auth login`. Send it only when there is
-  # no full-scope credential to override.
-  if ! claude_login_credential_present; then
-    if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-      CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -w 2>/dev/null)" || true
-    fi
-    if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-      export CLAUDE_CODE_OAUTH_TOKEN
-      FORWARD_CLAUDE_OAUTH_TOKEN=1
-    elif [ "${1:-}" = "claude" ]; then
-      cat >&2 <<'NOTOKEN'
+	# Claude Code stores its OAuth credentials in the macOS Keychain on this host, but reads them
+	# from ~/.claude/.credentials.json on Linux. The mounted ~/.claude therefore reaches the
+	# container carrying a stub whose accessToken and refreshToken are empty strings, so a container
+	# session knows the account -- that comes from ~/.claude.json's oauthAccount, which is complete
+	# -- while having no usable token, and fails with "OAuth session expired and could not be
+	# refreshed". The Keychain is not a file, so no additional mount can close this gap: the
+	# container needs a credential of its own. CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`,
+	# outranks the on-disk credential in Claude Code's authentication precedence, so it bypasses the
+	# unusable stub rather than having to replace it.
+	#
+	# Reading it from the Keychain rather than the shell profile is deliberate. Claude Code deletes
+	# the "Claude Code-credentials" Keychain entry on exit when CLAUDE_CODE_OAUTH_TOKEN is set
+	# (anthropics/claude-code#37512), so exporting this variable in ~/.zshrc would log the *host*
+	# out. Set here, it reaches only the container. FORWARD_CLAUDE_OAUTH_TOKEN, rather than the
+	# variable's own presence, gates the -e below: this credential authenticates Claude Code alone,
+	# and codex and gemini launches must not receive it just because the caller's shell has it set.
+	# A setup-token credential is the fallback, not the preference. It authenticates model requests
+	# and nothing else, so Remote Control and claude.ai connectors stay unavailable, and because
+	# CLAUDE_CODE_OAUTH_TOKEN outranks the on-disk credential it would silently downgrade a
+	# container that has already been signed in with `claude auth login`. Send it only when there is
+	# no full-scope credential to override.
+	if ! claude_login_credential_present; then
+		if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+			CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s CLAUDE_CODE_OAUTH_TOKEN -w 2>/dev/null)" || true
+		fi
+		if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+			export CLAUDE_CODE_OAUTH_TOKEN
+			FORWARD_CLAUDE_OAUTH_TOKEN=1
+		elif [ "${1:-}" = "claude" ]; then
+			cat >&2 <<'NOTOKEN'
 Warning: Claude Code will start logged out in this container.
   The host's login lives in the macOS Keychain, which cannot be mounted into a Linux
   container, so the mounted ~/.claude carries a stub with empty tokens. Two ways to fix
@@ -134,8 +135,8 @@ Warning: Claude Code will start logged out in this container.
   Do not export CLAUDE_CODE_OAUTH_TOKEN in your shell profile: Claude Code deletes the
   host's Keychain login on exit when that variable is set.
 NOTOKEN
-    fi
-  fi
+		fi
+	fi
 fi
 
 # Get absolute path of current directory
@@ -144,14 +145,20 @@ PWD_ABS="$(pwd)"
 # Build volume mounts; skip optional paths that don't exist on the host. The current directory
 # and the SSH agent proxy socket are not optional.
 VOLUMES=(
-  -v "${PWD_ABS}:${PWD_ABS}"
-  -v "/run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock"
+	-v "${PWD_ABS}:${PWD_ABS}"
+	-v "/run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock"
 )
+
 if [ -f "${HOME}/.gitconfig" ]; then
-  VOLUMES+=(-v "${HOME}/.gitconfig:/home/pde/.gitconfig:ro")
+	VOLUMES+=(-v "${HOME}/.gitconfig:/home/pde/.gitconfig:ro")
 else
-  echo "Warning: ~/.gitconfig not found; git identity will be unavailable in the container" >&2
+	echo "Warning: ~/.gitconfig not found; git identity will be unavailable in the container" >&2
 fi
+
+if [ -f "${HOME}/.gitconfig.user" ]; then
+	VOLUMES+=(-v "${HOME}/.gitconfig.user:/home/pde/.gitconfig.user:ro")
+fi
+
 [ -d "${HOME}/.aws" ] && VOLUMES+=(-v "${HOME}/.aws:/home/pde/.aws:ro")
 [ -d "${HOME}/.config/gh" ] && VOLUMES+=(-v "${HOME}/.config/gh:/home/pde/.config/gh:ro")
 
@@ -160,25 +167,31 @@ fi
 # repo). Each is mounted read-write at its own path, same as the current directory above. A path
 # that doesn't exist gets a warning, not a hard failure, matching the ~/.gitconfig pattern above.
 if [ -n "${CONTAINER_EXTRA_MOUNTS:-}" ]; then
-  IFS=':' read -ra EXTRA_MOUNTS <<<"${CONTAINER_EXTRA_MOUNTS}"
-  for extra_mount in "${EXTRA_MOUNTS[@]}"; do
-    [ -n "${extra_mount}" ] || continue
-    if [ -d "${extra_mount}" ]; then
-      VOLUMES+=(-v "${extra_mount}:${extra_mount}")
-    else
-      echo "Warning: CONTAINER_EXTRA_MOUNTS path not found, skipping: ${extra_mount}" >&2
-    fi
-  done
+	IFS=':' read -ra EXTRA_MOUNTS <<<"${CONTAINER_EXTRA_MOUNTS}"
+	for extra_mount in "${EXTRA_MOUNTS[@]}"; do
+		[ -n "${extra_mount}" ] || continue
+		if [ -d "${extra_mount}" ]; then
+			VOLUMES+=(-v "${extra_mount}:${extra_mount}")
+		else
+			echo "Warning: CONTAINER_EXTRA_MOUNTS path not found, skipping: ${extra_mount}" >&2
+		fi
+	done
 fi
 
 if [ "$TOOL_FLAVOR" = "codex" ]; then
-  [ -d "${HOME}/.codex" ] && VOLUMES+=(-v "${HOME}/.codex:/home/pde/.codex:rw")
+	[ -d "${HOME}/.codex" ] && VOLUMES+=(-v "${HOME}/.codex:/home/pde/.codex:rw")
 elif [ "$TOOL_FLAVOR" = "gemini" ]; then
-  [ -d "${HOME}/.gemini" ] && VOLUMES+=(-v "${HOME}/.gemini:/home/pde/.gemini:rw")
-  [ -d "${HOME}/.config/gcloud" ] && VOLUMES+=(-v "${HOME}/.config/gcloud:/home/pde/.config/gcloud:rw")
+	[ -d "${HOME}/.gemini" ] && VOLUMES+=(-v "${HOME}/.gemini:/home/pde/.gemini:rw")
+	[ -d "${HOME}/.config/gcloud" ] && VOLUMES+=(-v "${HOME}/.config/gcloud:/home/pde/.config/gcloud:rw")
 else
-  [ -d "${HOME}/.claude" ] && VOLUMES+=(-v "${HOME}/.claude:/home/pde/.claude:rw")
-  [ -f "${HOME}/.claude.json" ] && VOLUMES+=(-v "${HOME}/.claude.json:/home/pde/.claude.json:rw")
+	if [[ -d "${HOME}/.claude" ]]; then
+		# Keep host Claude state while restoring image-baked skills over the parent bind mount.
+		VOLUMES+=(
+			-v "${HOME}/.claude:/home/pde/.claude:rw"
+			-v "/home/pde/.claude/skills"
+		)
+	fi
+	[ -f "${HOME}/.claude.json" ] && VOLUMES+=(-v "${HOME}/.claude.json:/home/pde/.claude.json:rw")
 fi
 
 # Keep secrets off the docker run process argv, which stays visible via ps for the container's
@@ -192,11 +205,11 @@ fi
 # already be set for some unrelated reason. CLAUDE_GITHUB_TOKEN is the only documented, explicit
 # opt-in for this.
 if [ -n "${CLAUDE_GITHUB_TOKEN:-}" ]; then
-  export GITHUB_TOKEN="${CLAUDE_GITHUB_TOKEN}"
-  FORWARD_GITHUB_TOKEN=1
+	export GITHUB_TOKEN="${CLAUDE_GITHUB_TOKEN}"
+	FORWARD_GITHUB_TOKEN=1
 fi
 if [ -n "${OPENAI_API_KEY:-}" ]; then
-  export OPENAI_API_KEY
+	export OPENAI_API_KEY
 fi
 
 # The host may sign commits over SSH (gpg.format=ssh, commit.gpgsign=true). user.signingkey is a
@@ -218,16 +231,16 @@ fi
 GIT_SIGNINGKEY="$(git config --get user.signingkey 2>/dev/null)" || true
 GIT_SIGNING_ENV_FLAGS=()
 if [ -n "${GIT_SIGNINGKEY}" ]; then
-  GIT_CONFIG_COUNT=2
-  GIT_CONFIG_KEY_0="user.signingkey"
-  GIT_CONFIG_VALUE_0="${GIT_SIGNINGKEY}"
-  GIT_CONFIG_KEY_1="gpg.ssh.program"
-  GIT_CONFIG_VALUE_1="ssh-keygen"
-  export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
-  GIT_SIGNING_ENV_FLAGS=(
-    -e GIT_CONFIG_COUNT -e GIT_CONFIG_KEY_0 -e GIT_CONFIG_VALUE_0
-    -e GIT_CONFIG_KEY_1 -e GIT_CONFIG_VALUE_1
-  )
+	GIT_CONFIG_COUNT=2
+	GIT_CONFIG_KEY_0="user.signingkey"
+	GIT_CONFIG_VALUE_0="${GIT_SIGNINGKEY}"
+	GIT_CONFIG_KEY_1="gpg.ssh.program"
+	GIT_CONFIG_VALUE_1="ssh-keygen"
+	export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
+	GIT_SIGNING_ENV_FLAGS=(
+		-e GIT_CONFIG_COUNT -e GIT_CONFIG_KEY_0 -e GIT_CONFIG_VALUE_0
+		-e GIT_CONFIG_KEY_1 -e GIT_CONFIG_VALUE_1
+	)
 fi
 
 # Any already-exported VARNAME=op://vault/item/field is a project's own secret reference, set via
@@ -237,15 +250,15 @@ fi
 # op:// reference gets exactly one -e flag rather than two.
 SECRET_ENV_FLAGS=()
 while IFS= read -r var_name; do
-  case "$var_name" in
-  AWS_PROFILE | AWS_REGION | CLAUDE_CODE_OAUTH_TOKEN | CLAUDE_CODE_USE_BEDROCK | GITHUB_TOKEN | \
-    GOOGLE_CLOUD_PROJECT | GOOGLE_CLOUD_LOCATION | OPENAI_API_KEY | SSH_AUTH_SOCK)
-    continue
-    ;;
-  esac
-  case "${!var_name-}" in
-  op://*) SECRET_ENV_FLAGS+=(-e "$var_name") ;;
-  esac
+	case "$var_name" in
+	AWS_PROFILE | AWS_REGION | CLAUDE_CODE_OAUTH_TOKEN | CLAUDE_CODE_USE_BEDROCK | GITHUB_TOKEN | \
+		GOOGLE_CLOUD_PROJECT | GOOGLE_CLOUD_LOCATION | OPENAI_API_KEY | SSH_AUTH_SOCK)
+		continue
+		;;
+	esac
+	case "${!var_name-}" in
+	op://*) SECRET_ENV_FLAGS+=(-e "$var_name") ;;
+	esac
 done < <(compgen -e)
 
 # Only allocate a pty when one is actually available, so non-interactive invocations (piped or
@@ -253,42 +266,42 @@ done < <(compgen -e)
 TTY_FLAGS=(-i)
 IS_INTERACTIVE=0
 if [ -t 0 ] && [ -t 1 ]; then
-  TTY_FLAGS+=(-t)
-  IS_INTERACTIVE=1
+	TTY_FLAGS+=(-t)
+	IS_INTERACTIVE=1
 fi
 
 # Resolving op:// references requires op on the host; wrap the whole docker run in `op run` only
 # when there is at least one, so a project that never uses this facility never needs op installed.
 DOCKER_RUN_PREFIX=()
 if [ "${#SECRET_ENV_FLAGS[@]}" -gt 0 ]; then
-  if ! command -v op >/dev/null 2>&1; then
-    echo "Error: op (1Password CLI) not found on host, required to resolve op:// references" >&2
-    exit 1
-  fi
-  DOCKER_RUN_PREFIX=(op run)
-  # op run's secret masking makes stdout/stderr non-TTY even though stdin stays one, which the
-  # docker run client needs to proxy an interactive container session back to this terminal (and
-  # which confirmed breaks Claude Code's own REPL detection the same way). Only give up masking's
-  # safety net when the session is actually interactive; a piped/redirected invocation has no TTY
-  # to break in the first place.
-  [ "$IS_INTERACTIVE" = "1" ] && DOCKER_RUN_PREFIX+=(--no-masking)
-  DOCKER_RUN_PREFIX+=(--)
+	if ! command -v op >/dev/null 2>&1; then
+		echo "Error: op (1Password CLI) not found on host, required to resolve op:// references" >&2
+		exit 1
+	fi
+	DOCKER_RUN_PREFIX=(op run)
+	# op run's secret masking makes stdout/stderr non-TTY even though stdin stays one, which the
+	# docker run client needs to proxy an interactive container session back to this terminal (and
+	# which confirmed breaks Claude Code's own REPL detection the same way). Only give up masking's
+	# safety net when the session is actually interactive; a piped/redirected invocation has no TTY
+	# to break in the first place.
+	[ "$IS_INTERACTIVE" = "1" ] && DOCKER_RUN_PREFIX+=(--no-masking)
+	DOCKER_RUN_PREFIX+=(--)
 fi
 
 # Run the dev container. SSH_AUTH_SOCK points at the in-image symlink the Dockerfile creates
 # to /run/host-services/ssh-auth.sock, matching compose.yaml's forwarding setup. DOCKER_RUN_PREFIX
 # wraps this in `op run --` only when SECRET_ENV_FLAGS found something to resolve.
 exec "${DOCKER_RUN_PREFIX[@]}" docker run --rm "${TTY_FLAGS[@]}" \
-  "${VOLUMES[@]}" -w "${PWD_ABS}" \
-  -e "SSH_AUTH_SOCK=/home/pde/.1password/agent.sock" \
-  ${AWS_PROFILE:+-e "AWS_PROFILE=${AWS_PROFILE}"} \
-  ${AWS_REGION:+-e "AWS_REGION=${AWS_REGION}"} \
-  ${FORWARD_CLAUDE_OAUTH_TOKEN:+-e CLAUDE_CODE_OAUTH_TOKEN} \
-  ${CLAUDE_CODE_USE_BEDROCK:+-e "CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK}"} \
-  ${FORWARD_GITHUB_TOKEN:+-e GITHUB_TOKEN} \
-  ${GOOGLE_CLOUD_PROJECT:+-e "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"} \
-  ${GOOGLE_CLOUD_LOCATION:+-e "GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}"} \
-  ${OPENAI_API_KEY:+-e OPENAI_API_KEY} \
-  "${GIT_SIGNING_ENV_FLAGS[@]}" \
-  "${SECRET_ENV_FLAGS[@]}" \
-  "$IMAGE" "$@"
+	"${VOLUMES[@]}" -w "${PWD_ABS}" \
+	-e "SSH_AUTH_SOCK=/home/pde/.1password/agent.sock" \
+	${AWS_PROFILE:+-e "AWS_PROFILE=${AWS_PROFILE}"} \
+	${AWS_REGION:+-e "AWS_REGION=${AWS_REGION}"} \
+	${FORWARD_CLAUDE_OAUTH_TOKEN:+-e CLAUDE_CODE_OAUTH_TOKEN} \
+	${CLAUDE_CODE_USE_BEDROCK:+-e "CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK}"} \
+	${FORWARD_GITHUB_TOKEN:+-e GITHUB_TOKEN} \
+	${GOOGLE_CLOUD_PROJECT:+-e "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}"} \
+	${GOOGLE_CLOUD_LOCATION:+-e "GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}"} \
+	${OPENAI_API_KEY:+-e OPENAI_API_KEY} \
+	"${GIT_SIGNING_ENV_FLAGS[@]}" \
+	"${SECRET_ENV_FLAGS[@]}" \
+	"$IMAGE" "$@"
