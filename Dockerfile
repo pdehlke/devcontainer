@@ -4,6 +4,8 @@ FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+ENV TZ=MST
+
 ARG TARGETARCH
 ARG CHEZMOI_VERSION=2.71.1
 ARG CHEZMOI_AMD64_SHA256=e1fb16c962644d57f4d451c324aa86163d00faf5d035500f41fb48943a66dfed
